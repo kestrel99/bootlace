@@ -73,8 +73,10 @@ bootstrap_emax <- function(
   n_par     <- fit$n_par
   th_names  <- names(fit$theta_hat)
 
-  # Warm-start vector: convert log_ec50 back to natural scale so
-  # fit_logistic_emax's start-handling can round-trip it correctly.
+  # Warm-start vector for the jackknife refits (natural-scale ec50, as
+  # fit_logistic_emax() expects). Bootstrap refits don't use it: a warm start
+  # kept them near the original estimate and understated the spread of
+  # EC50 by about 20% in weakly identified designs.
   warm <- as.numeric(fit$theta_hat)
   warm[fit$idx$log_ec50] <- exp(warm[fit$idx$log_ec50])
 
@@ -83,19 +85,20 @@ bootstrap_emax <- function(
   Z_emax <- if (ncol(fit$Z_emax) > 0) fit$Z_emax else NULL
   Z_ec50 <- if (ncol(fit$Z_ec50) > 0) fit$Z_ec50 else NULL
 
-  refit <- function(i) {
-    rows <- sample.int(n, n, replace = TRUE)
+  refit_rows <- function(rows, start) {
     fit_logistic_emax(
       y           = fit$y[rows],
       x           = fit$x[rows],
       linear_covs = if (!is.null(Z_lin))  Z_lin[rows, , drop = FALSE]  else NULL,
       emax_covs   = if (!is.null(Z_emax)) Z_emax[rows, , drop = FALSE] else NULL,
       ec50_covs   = if (!is.null(Z_ec50)) Z_ec50[rows, , drop = FALSE] else NULL,
-      start       = warm,
+      start       = start,
       hessian     = FALSE,
       control     = list(maxit = 500)
     )$theta_hat
   }
+  # Bootstrap refits use the automatic multi-start (start = NULL).
+  refit <- function(i) refit_rows(sample.int(n, n, replace = TRUE), NULL)
   # Sample-size warnings describe the data: keep. Identifiability and EC50-range
   # warnings: keep and count (the EC50 range is summarised after the loop).
   # Anything else (e.g. optimiser non-convergence): drop.
@@ -112,10 +115,24 @@ bootstrap_emax <- function(
 
   .warn_boot_ec50(exp(res$coefs[, fit$idx$log_ec50]), fit$x, conf_level)
 
+  # Grouped jackknife (at most 200 groups) for the BCa acceleration used by
+  # summary() and plot_emax_curve(). Leaving out a few rows moves the optimum
+  # little, so these refits start from the original estimate.
+  n_grp <- min(n, 200L)
+  grp   <- rep_len(seq_len(n_grp), n)
+  jack_theta <- t(vapply(seq_len(n_grp), function(g) {
+    tryCatch(
+      suppressWarnings(refit_rows(which(grp != g), warm)),
+      error = function(e) rep(NA_real_, n_par)
+    )
+  }, numeric(n_par)))
+  colnames(jack_theta) <- th_names
+
   structure(
     list(
       fit         = fit,
       boot_theta  = res$coefs,
+      jack_theta  = jack_theta,
       conf_level  = conf_level,
       n_boot      = nrow(res$coefs),
       n_requested = res$n_requested,
@@ -159,52 +176,93 @@ print.boot_emax <- function(x, ...) {
 #' Summarise a `boot_emax` object
 #'
 #' Returns and prints a data frame of original-data estimates alongside
-#' bootstrapped standard errors, bias, and percentile confidence intervals.
-#' The ec50 column of `boot_theta` is back-transformed from log scale before
-#' computing summaries so all CIs are on the reporting scale.
+#' bootstrapped standard errors, bias, and confidence intervals.
+#'
+#' By default the intervals are bias-corrected and accelerated (BCa; Efron &
+#' Tibshirani, 1993). In a simulation study (100 data sets of n = 300; see
+#' `tests/testthat/test-coverage.R`) the Emax estimate was biased upward and
+#' skewed, and nominal 95% percentile intervals covered the true Emax in only
+#' 86% of samples in a well-identified design (EC50 within the dose range)
+#' and 83% in a weakly identified one (EC50 near the top dose). BCa intervals
+#' covered E0, Emax and log EC50 in 90-95% and 89-93% of samples
+#' respectively. Use `ci = "percentile"` for the plain percentile intervals.
+#' BCa needs the jackknife fits stored by [bootstrap_emax()]; for older
+#' objects without them, percentile intervals are used and the header says
+#' so. Profile-likelihood intervals (`confint(fit)`, see
+#' [confint.logistic_emax()]) did as well or better and also show when a
+#' bound is not determined by the data.
+#'
+#' Intervals are computed on the optimisation scale (log EC50) and
+#' back-transformed, so the `ec50` interval is on the natural scale.
 #'
 #' @param object A `boot_emax` object.
+#' @param ci `"bca"` (default) or `"percentile"`.
 #' @param ... Currently unused; included for S3 compatibility.
 #'
 #' @return A data frame (invisibly) with columns `Estimate`, `Boot_SE`,
-#'   `Boot_Bias`, `CI_<level>%_lo`, and `CI_<level>%_hi`.
+#'   `Boot_Bias`, `CI_<level>%_lo`, and `CI_<level>%_hi`, and attribute
+#'   `ci_method`.
 #'
-#' @seealso [bootstrap_emax()], [print.boot_emax()]
+#' @references
+#' Efron B, Tibshirani RJ (1993). *An Introduction to the Bootstrap*. Chapman
+#' & Hall, New York. Chapter 14.
+#'
+#' @seealso [bootstrap_emax()], [print.boot_emax()], [confint.logistic_emax()]
 #'
 #' @export
-summary.boot_emax <- function(object, ...) {
-  alpha  <- 1 - object$conf_level
-  ci_pct <- round(object$conf_level * 100)
+summary.boot_emax <- function(object, ci = c("bca", "percentile"), ...) {
+  ci     <- match.arg(ci)
+  level  <- object$conf_level
+  alpha  <- 1 - level
+  ci_pct <- round(level * 100)
   fit    <- object$fit
+  B      <- object$boot_theta
+  th     <- fit$theta_hat
+  if (ci == "bca" && is.null(object$jack_theta)) ci <- "percentile_fallback"
 
-  # Convert boot_theta to reporting scale: back-transform the ec50 column.
-  boot_rep <- object$boot_theta
-  boot_rep[, fit$idx$log_ec50] <- exp(boot_rep[, fit$idx$log_ec50])
-  colnames(boot_rep) <- names(fit$coefficients)
+  # Intervals on the optimisation scale, then back-transform ec50.
+  lims <- vapply(seq_len(ncol(B)), function(j) {
+    if (ci == "bca") .bca_ci(B[, j], th[[j]], object$jack_theta[, j], level)
+    else stats::quantile(B[, j], c(alpha / 2, 1 - alpha / 2), names = FALSE,
+                         na.rm = TRUE)
+  }, numeric(2L))
+  j_ec50 <- fit$idx$log_ec50
+  lims[, j_ec50] <- exp(lims[, j_ec50])
 
-  coef_orig  <- fit$coefficients
-  ci_lo      <- apply(boot_rep, 2, stats::quantile, probs = alpha / 2,       na.rm = TRUE)
-  ci_hi      <- apply(boot_rep, 2, stats::quantile, probs = 1 - alpha / 2,   na.rm = TRUE)
-  boot_se    <- apply(boot_rep, 2, stats::sd, na.rm = TRUE)
-  boot_bias  <- colMeans(boot_rep, na.rm = TRUE) - coef_orig
+  # SE and bias on the reporting scale.
+  boot_rep <- B
+  boot_rep[, j_ec50] <- exp(boot_rep[, j_ec50])
+  coef_orig <- fit$coefficients
+  boot_se   <- apply(boot_rep, 2, stats::sd, na.rm = TRUE)
+  boot_bias <- colMeans(boot_rep, na.rm = TRUE) - coef_orig
 
   tbl <- data.frame(
-    Estimate  = round(coef_orig,  4),
-    Boot_SE   = round(boot_se,    4),
-    Boot_Bias = round(boot_bias,  4),
-    CI_lo     = round(ci_lo,      4),
-    CI_hi     = round(ci_hi,      4),
+    Estimate  = round(coef_orig, 4),
+    Boot_SE   = round(boot_se,   4),
+    Boot_Bias = round(boot_bias, 4),
+    CI_lo     = round(lims[1, ], 4),
+    CI_hi     = round(lims[2, ], 4),
+    row.names = names(coef_orig),
     check.names = FALSE
   )
   names(tbl)[4:5] <- c(
     sprintf("CI_%d%%_lo", ci_pct),
     sprintf("CI_%d%%_hi", ci_pct)
   )
+  method_lbl <- switch(ci,
+    bca = "BCa",
+    percentile = "percentile",
+    percentile_fallback = "percentile (no jackknife fits stored for BCa)"
+  )
+  attr(tbl, "ci_method") <- method_lbl
 
-  cat("-- Bootstrap Emax Summary ------------------------------------------\n")
+  cat("-- Bootstrap Emax Summary ------------------------------------------
+")
   cat(sprintf(
-    "  Replicates : %d  |  CI level: %.0f%%\n\n",
-    object$n_boot, object$conf_level * 100
+    "  Replicates : %d  |  CI level: %.0f%%  |  CI method: %s
+
+",
+    object$n_boot, level * 100, method_lbl
   ))
   print(tbl)
   invisible(tbl)
@@ -256,7 +314,8 @@ summary.boot_emax <- function(object, ...) {
         "EC50 is only weakly determined. "
       ), 100 * tail_share, 100 * conf_level)
     },
-    "Options: a profile-likelihood interval for EC50, fixing Emax or EC50 ",
+    "Options: a profile-likelihood interval for EC50 (confint(fit, method = ",
+    "\"profile\")), fixing Emax or EC50 ",
     "from prior information, a simpler exposure-response model, or data at ",
     "more informative exposures."
   ), "bootlace_emax_ec50_warning")

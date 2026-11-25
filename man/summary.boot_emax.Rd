@@ -4,23 +4,46 @@
 \alias{summary.boot_emax}
 \title{Summarise a \code{boot_emax} object}
 \usage{
-\method{summary}{boot_emax}(object, ...)
+\method{summary}{boot_emax}(object, ci = c("bca", "percentile"), ...)
 }
 \arguments{
 \item{object}{A \code{boot_emax} object.}
+
+\item{ci}{\code{"bca"} (default) or \code{"percentile"}.}
 
 \item{...}{Currently unused; included for S3 compatibility.}
 }
 \value{
 A data frame (invisibly) with columns \code{Estimate}, \code{Boot_SE},
-\code{Boot_Bias}, \verb{CI_<level>\%_lo}, and \verb{CI_<level>\%_hi}.
+\code{Boot_Bias}, \verb{CI_<level>\%_lo}, and \verb{CI_<level>\%_hi}, and attribute
+\code{ci_method}.
 }
 \description{
 Returns and prints a data frame of original-data estimates alongside
-bootstrapped standard errors, bias, and percentile confidence intervals.
-The ec50 column of \code{boot_theta} is back-transformed from log scale before
-computing summaries so all CIs are on the reporting scale.
+bootstrapped standard errors, bias, and confidence intervals.
+}
+\details{
+By default the intervals are bias-corrected and accelerated (BCa; Efron &
+Tibshirani, 1993). In a simulation study (100 data sets of n = 300; see
+\code{tests/testthat/test-coverage.R}) the Emax estimate was biased upward and
+skewed, and nominal 95\% percentile intervals covered the true Emax in only
+86\% of samples in a well-identified design (EC50 within the dose range)
+and 83\% in a weakly identified one (EC50 near the top dose). BCa intervals
+covered E0, Emax and log EC50 in 90-95\% and 89-93\% of samples
+respectively. Use \code{ci = "percentile"} for the plain percentile intervals.
+BCa needs the jackknife fits stored by \code{\link[=bootstrap_emax]{bootstrap_emax()}}; for older
+objects without them, percentile intervals are used and the header says
+so. Profile-likelihood intervals (\code{confint(fit)}, see
+\code{\link[=confint.logistic_emax]{confint.logistic_emax()}}) did as well or better and also show when a
+bound is not determined by the data.
+
+Intervals are computed on the optimisation scale (log EC50) and
+back-transformed, so the \code{ec50} interval is on the natural scale.
+}
+\references{
+Efron B, Tibshirani RJ (1993). \emph{An Introduction to the Bootstrap}. Chapman
+& Hall, New York. Chapter 14.
 }
 \seealso{
-\code{\link[=bootstrap_emax]{bootstrap_emax()}}, \code{\link[=print.boot_emax]{print.boot_emax()}}
+\code{\link[=bootstrap_emax]{bootstrap_emax()}}, \code{\link[=print.boot_emax]{print.boot_emax()}}, \code{\link[=confint.logistic_emax]{confint.logistic_emax()}}
 }

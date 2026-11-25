@@ -1,5 +1,11 @@
 # bootlace 0.1.0
 
+* Emax intervals: a simulation study found that bootstrap percentile intervals under-covered the true Emax (86% for a nominal 95% in a well-identified design, 80-83% in a weakly identified one). With the changes below, BCa intervals cover 89-95% and profile intervals 91-99% in both designs:
+  * `summary.boot_emax()` and `plot_emax_curve()` now default to BCa (bias-corrected and accelerated) intervals, using jackknife fits that `bootstrap_emax()` stores as `jack_theta`; `ci = "percentile"` gives the old intervals.
+  * `bootstrap_emax()` refits each replicate from the automatic multi-start instead of the original estimate, which had understated the spread of EC50 by about 20% in weakly identified designs.
+  * New `confint()` method for `fit_logistic_emax()` fits: profile-likelihood intervals by default (with infinite bounds, and a warning, when the data don't determine a parameter in one direction), or Wald intervals.
+  * An opt-in coverage study (`BOOTLACE_COVERAGE=true`) checks interval coverage for the logistic, Cox (including patient-level resampling) and Emax bootstraps (no issue).
+
 * Argument validation: bootstrap, simulation and grid counts must be whole numbers; confidence levels, `alpha` and percentiles must lie in (0, 1); `vpc_cox()`'s `pi_probs` must be increasing and `t_max` positive; seeds must be single numbers; `times` and ROC `thresholds` must be finite and in range; `predict.logistic_emax()` rejects negative or infinite exposures (no issue).
 
 * `fp_data()` and `fp_plot()` label interaction rows as ratios of ORs or HRs, and give header rows a joint Wald test over all of the term's coefficients (shown with its df when above 1) instead of the first contrast's p-value. A new `p_df` column records the test's df (no issue).

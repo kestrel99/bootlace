@@ -9,9 +9,12 @@
 #' are supplied via `newlinear`, `newemax`, or `newec50`. When such covariates
 #' are present the subtitle reports what values were used.
 #'
-#' Bootstrap CIs are percentile intervals: each replicate in `be$boot_theta`
-#' is used to compute a response curve, and the `alpha/2` and
-#' `1 - alpha/2` quantiles across replicates form the ribbon bounds.
+#' The ribbon is a pointwise bootstrap interval: each replicate in
+#' `be$boot_theta` gives a response curve, and at each grid point the
+#' interval is BCa by default (bias-corrected and accelerated, using the
+#' jackknife fits stored by [bootstrap_emax()]) or, with
+#' `ci = "percentile"`, the `alpha/2` and `1 - alpha/2` quantiles. See
+#' [summary.boot_emax()] for why BCa is the default.
 #'
 #' @param be A `boot_emax` object returned by [bootstrap_emax()].
 #' @param n_grid Integer; number of equally-spaced grid points for the fitted
@@ -51,6 +54,8 @@
 #' @param free_y Logical; if `FALSE` (default) the y-axis spans 0-1.
 #' @param x_label Character; x-axis label. Default `"x"`.
 #' @param y_label Character; y-axis label. Default `"P(Response = 1)"`.
+#' @param ci `"bca"` (default) or `"percentile"` ribbon. Objects without
+#'   stored jackknife fits fall back to percentile.
 #'
 #' @return A `ggplot` object.
 #'
@@ -89,8 +94,10 @@ plot_emax_curve <- function(
   base_theme      = NULL,
   free_y          = FALSE,
   x_label         = "x",
-  y_label         = "P(Response = 1)"
+  y_label         = "P(Response = 1)",
+  ci              = c("bca", "percentile")
 ) {
+  ci <- match.arg(ci)
   if (!inherits(be, "boot_emax"))
     stop("`be` must be a boot_emax object returned by bootstrap_emax().")
   n_grid <- .check_count(n_grid, "n_grid", min = 2L)
@@ -151,8 +158,20 @@ plot_emax_curve <- function(
   # apply over rows of boot_theta (each row is one theta vector)
   # result is n_grid x n_boot
   boot_mat <- apply(be$boot_theta, 1L, .pred)
-  ci_lo    <- apply(boot_mat, 1L, stats::quantile, probs = alpha / 2,       na.rm = TRUE)
-  ci_hi    <- apply(boot_mat, 1L, stats::quantile, probs = 1 - alpha / 2,   na.rm = TRUE)
+  if (ci == "bca" && is.null(be$jack_theta)) ci <- "percentile"
+  if (ci == "bca") {
+    # Pointwise BCa, using predictions from the stored jackknife fits.
+    jack_ok  <- stats::complete.cases(be$jack_theta)
+    jack_mat <- apply(be$jack_theta[jack_ok, , drop = FALSE], 1L, .pred)
+    lims <- vapply(seq_len(n_grid), function(k) {
+      .bca_ci(boot_mat[k, ], prob[k], jack_mat[k, ], be$conf_level)
+    }, numeric(2L))
+    ci_lo <- lims[1, ]
+    ci_hi <- lims[2, ]
+  } else {
+    ci_lo <- apply(boot_mat, 1L, stats::quantile, probs = alpha / 2,     na.rm = TRUE)
+    ci_hi <- apply(boot_mat, 1L, stats::quantile, probs = 1 - alpha / 2, na.rm = TRUE)
+  }
 
   curve_df <- data.frame(x = x_grid, prob = prob, ci_lo = ci_lo, ci_hi = ci_hi)
 
@@ -175,7 +194,7 @@ plot_emax_curve <- function(
   has_covs   <- p_lin > 0L || p_emax > 0L || p_ec50 > 0L
   covs_fixed <- any(!is.null(newlinear), !is.null(newemax), !is.null(newec50))
   subtitle_txt <- sprintf(
-    "%s%d%% bootstrap CI  (n = %d replicates)",
+    "%s%d%% bootstrap %s CI  (n = %d replicates)",
     if (has_covs)
       paste0(
         "Other covariates at ",
@@ -183,7 +202,7 @@ plot_emax_curve <- function(
         "  |  "
       )
     else "",
-    cl_pct, be$n_boot
+    cl_pct, if (ci == "bca") "BCa" else "percentile", be$n_boot
   )
 
   # ---- Base plot -------------------------------------------------------------

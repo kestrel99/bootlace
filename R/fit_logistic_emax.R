@@ -273,18 +273,7 @@ fit_logistic_emax <- function(
   )
 
   # ---- Negative log-likelihood -----------------------------------------------
-  nll <- function(theta) {
-    emax_i <- theta[idx_emax0] +
-      if (p_emax > 0) drop(Z_emax %*% theta[idx_emax_cov]) else 0
-    ec50_i <- exp(theta[idx_log_ec50] +
-      if (p_ec50 > 0) drop(Z_ec50 %*% theta[idx_ec50_cov]) else 0)
-    eta <- theta[idx_e0] + emax_i * x / (ec50_i + x) +
-      if (p_lin > 0) drop(Z_lin %*% theta[idx_lin]) else 0
-    -sum(
-      y       * stats::plogis(eta, log.p = TRUE) +
-      (1 - y) * stats::plogis(eta, lower.tail = FALSE, log.p = TRUE)
-    )
-  }
+  nll <- .emax_nll_fn(x, y, Z_lin, Z_emax, Z_ec50, idx)
 
   # ---- Starting values -------------------------------------------------------
   if (is.null(start)) {
@@ -726,7 +715,8 @@ predict.logistic_emax <- function(
       "almost equally well, and their standard errors and confidence ",
       "intervals are unreliable. Interpret only the fitted curve within the ",
       "observed exposure range. Options: a profile-likelihood interval for ",
-      "EC50, fixing Emax or EC50 from prior information, a simpler ",
+      "EC50 (confint(fit, method = \"profile\")), fixing Emax or EC50 from ",
+      "prior information, a simpler ",
       "exposure-response model (e.g. log-linear), or data at higher exposures."
     ), format(signif(ec50, 3)), format(hi))
   } else if (ec50 < lo) {
@@ -736,8 +726,9 @@ predict.logistic_emax <- function(
       "the lowest exposure, so the curve is close to a step and EC50 is set ",
       "by the shape the model assumes rather than by the data; its standard ",
       "error and confidence interval are unreliable. Options: a ",
-      "profile-likelihood interval for EC50, fixing EC50 from prior ",
-      "information, or data at lower exposures."
+      "profile-likelihood interval for EC50 (confint(fit, method = ",
+      "\"profile\")), fixing EC50 from prior information, or data at lower ",
+      "exposures."
     ), format(signif(ec50, 3)), format(10 * lo))
   }
 }

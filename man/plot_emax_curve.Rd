@@ -25,7 +25,8 @@ plot_emax_curve(
   base_theme = NULL,
   free_y = FALSE,
   x_label = "x",
-  y_label = "P(Response = 1)"
+  y_label = "P(Response = 1)",
+  ci = c("bca", "percentile")
 )
 }
 \arguments{
@@ -87,6 +88,9 @@ Defaults to a \code{theme_bw}-based theme.}
 \item{x_label}{Character; x-axis label. Default \code{"x"}.}
 
 \item{y_label}{Character; y-axis label. Default \code{"P(Response = 1)"}.}
+
+\item{ci}{\code{"bca"} (default) or \code{"percentile"} ribbon. Objects without
+stored jackknife fits fall back to percentile.}
 }
 \value{
 A \code{ggplot} object.
@@ -102,9 +106,12 @@ their training-data column means for the fitted curve unless custom matrices
 are supplied via \code{newlinear}, \code{newemax}, or \code{newec50}. When such covariates
 are present the subtitle reports what values were used.
 
-Bootstrap CIs are percentile intervals: each replicate in \code{be$boot_theta}
-is used to compute a response curve, and the \code{alpha/2} and
-\code{1 - alpha/2} quantiles across replicates form the ribbon bounds.
+The ribbon is a pointwise bootstrap interval: each replicate in
+\code{be$boot_theta} gives a response curve, and at each grid point the
+interval is BCa by default (bias-corrected and accelerated, using the
+jackknife fits stored by \code{\link[=bootstrap_emax]{bootstrap_emax()}}) or, with
+\code{ci = "percentile"}, the \code{alpha/2} and \code{1 - alpha/2} quantiles. See
+\code{\link[=summary.boot_emax]{summary.boot_emax()}} for why BCa is the default.
 }
 \examples{
 set.seed(42)
