@@ -163,11 +163,14 @@ plot_emax_curve <- function(
     # Pointwise BCa, using predictions from the stored jackknife fits.
     jack_ok  <- stats::complete.cases(be$jack_theta)
     jack_mat <- apply(be$jack_theta[jack_ok, , drop = FALSE], 1L, .pred)
-    lims <- vapply(seq_len(n_grid), function(k) {
+    ints <- lapply(seq_len(n_grid), function(k) {
       .bca_ci(boot_mat[k, ], prob[k], jack_mat[k, ], be$conf_level)
-    }, numeric(2L))
-    ci_lo <- lims[1, ]
-    ci_hi <- lims[2, ]
+    })
+    ci_lo  <- vapply(ints, `[`, numeric(1L), 1L)
+    ci_hi  <- vapply(ints, `[`, numeric(1L), 2L)
+    n_fall <- sum(vapply(ints, function(r) {
+      !identical(attr(r, "method"), "BCa")
+    }, logical(1L)))
   } else {
     ci_lo <- apply(boot_mat, 1L, stats::quantile, probs = alpha / 2,     na.rm = TRUE)
     ci_hi <- apply(boot_mat, 1L, stats::quantile, probs = 1 - alpha / 2, na.rm = TRUE)
@@ -202,7 +205,11 @@ plot_emax_curve <- function(
         "  |  "
       )
     else "",
-    cl_pct, if (ci == "bca") "BCa" else "percentile", be$n_boot
+    cl_pct,
+    if (ci != "bca") "percentile" else if (n_fall == 0L) "BCa" else
+      sprintf("BCa (percentile at %d of %d points where BCa is unavailable)",
+              n_fall, n_grid),
+    be$n_boot
   )
 
   # ---- Base plot -------------------------------------------------------------

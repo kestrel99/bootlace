@@ -47,10 +47,15 @@ optimiser doesn't converge, or that raise any other unexpected warning are
 dropped, and the reasons are counted in \code{failures} and reported in a
 message.
 
-Sample-size, identifiability and EC50-range warnings from the refits are
-not treated as failures, so replicates in which EC50 runs to extreme
-values are kept: dropping them would make the percentile intervals look
-more precise than the data allow. Instead, when any retained replicate has
+Sample-size, identifiability, diverging-ridge and EC50-range warnings from
+the refits are not treated as failures, so replicates in which EC50 runs
+to extreme values are kept (and counted in \code{flag_counts}): dropping them
+would make the intervals look more precise than the data allow. A refit
+whose optimiser stopped short of the optimum even after a retry, without
+being on a diverging ridge, is an optimisation failure and is dropped;
+see \strong{Unrealistic EC50} in \code{\link[=fit_logistic_emax]{fit_logistic_emax()}}. The grouped-jackknife
+refits used for BCa are judged the same way, and failed ones are left out
+of the acceleration estimate. When any retained replicate has
 EC50 outside the range the exposures can support (see \strong{Unrealistic
 EC50} in \code{\link[=fit_logistic_emax]{fit_logistic_emax()}}), one detailed warning of class
 \code{bootlace_emax_ec50_warning} reports how many, the bootstrap EC50

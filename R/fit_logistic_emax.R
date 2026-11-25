@@ -66,11 +66,16 @@
 #'
 #' Of the warnings described under **Convergence and standard errors**, a
 #' Hessian that is not positive definite (parameters not identified at the
-#' optimum) has class `bootlace_emax_identification_warning`, and an
-#' optimiser that stopped before reaching the optimum (typically EC50 running
-#' along the Emax/EC50 ridge) has class `bootlace_emax_stopped_warning`.
-#' [bootstrap_emax()] keeps replicates with either, and counts each reason
-#' separately.
+#' optimum) has class `bootlace_emax_identification_warning`. When the
+#' optimiser stops before reaching the optimum, the fit is retried once
+#' (longer, tighter optimisation and more Newton steps). If it still stops
+#' short, the fit is checked for a diverging ridge: if moving EC50 tenfold
+#' along the Emax/EC50 ridge still improves the likelihood, the maximum is at
+#' the EC50 -> Inf boundary and the warning has class
+#' `bootlace_emax_ridge_warning`; otherwise it is an optimisation failure,
+#' with class `bootlace_emax_stopped_warning`. [bootstrap_emax()] keeps
+#' ridge and non-identified replicates (counting each reason) but drops
+#' optimisation failures.
 #'
 #' @param y Numeric binary outcome vector (0 or 1).
 #' @param x Numeric predictor vector (e.g. dose, concentration, time), same
@@ -338,6 +343,20 @@ fit_logistic_emax <- function(
   # optimiser could still gain. BFGS often stops a little short, so finish
   # with Newton steps first.
   pol       <- .polish_optimum(nll, setNames(opt$par, theta_names))
+  # Stopped short with a usable Hessian: retry once with a longer, tighter
+  # BFGS run and more Newton steps before judging the fit.
+  if (opt$convergence == 0 && !is.null(pol$H_inv) && pol$decrement >= 1e-4) {
+    retry <- tryCatch(
+      stats::optim(pol$par, nll, method = "BFGS",
+                   control = list(maxit = 2000, reltol = 1e-12)),
+      error = function(e) NULL
+    )
+    if (!is.null(retry) && is.finite(retry$value)) {
+      pol2 <- .polish_optimum(nll, setNames(retry$par, theta_names),
+                              max_steps = 50L)
+      if (nll(pol2$par) <= nll(pol$par)) pol <- pol2
+    }
+  }
   th        <- pol$par
   H_inv     <- pol$H_inv
   decrement <- pol$decrement
@@ -353,14 +372,23 @@ fit_logistic_emax <- function(
       "unavailable and `converged` is FALSE."
     ), "bootlace_emax_identification_warning")
   } else if (!converged) {
-    # A separate class from the Hessian check: this is the optimiser not
-    # reaching the optimum (typically EC50 running along the Emax/EC50 ridge),
-    # not a non-identified optimum.
-    .emax_warning(paste0(
-      "The optimiser stopped before reaching the optimum (often EC50 running ",
-      "along the Emax/EC50 ridge); `converged` is FALSE. Try a smaller ",
-      "`control$reltol`, or see confint(fit, method = \"profile\")."
-    ), "bootlace_emax_stopped_warning")
+    # Still short of the optimum after the retry. Either the likelihood keeps
+    # improving as EC50 and Emax grow together (the MLE is at the EC50 -> Inf
+    # boundary: a property of the data), or the optimiser failed.
+    if (.emax_ridge_diverges(nll, th, idx, x)) {
+      .emax_warning(paste0(
+        "EC50 is diverging: the likelihood keeps improving as EC50 and Emax ",
+        "grow together, so the maximum is at the boundary (EC50 -> Inf) and ",
+        "the reported EC50 and Emax are just points on that ridge. ",
+        "`converged` is FALSE. See confint(fit, method = \"profile\")."
+      ), "bootlace_emax_ridge_warning")
+    } else {
+      .emax_warning(paste0(
+        "The optimiser stopped before reaching the optimum, even after a ",
+        "retry; `converged` is FALSE. Try other `start` values or a smaller ",
+        "`control$reltol`."
+      ), "bootlace_emax_stopped_warning")
+    }
   }
 
   # ---- Is the EC50 estimate supported by the observed exposures? -------------
@@ -750,4 +778,31 @@ predict.logistic_emax <- function(
 .ec50_support <- function(x) {
   x_pos <- x[x > 0]
   c(lo = .EC50_LOW_FRACTION * min(x_pos), hi = max(x_pos))
+}
+
+
+# TRUE when moving EC50 up tenfold along the Emax/EC50 ridge (rescaling the
+# Emax parameters so Emax / (EC50 + x_m) is unchanged, then re-optimising
+# everything except EC50) still lowers the negative log-likelihood: the
+# maximum is at the EC50 -> Inf boundary rather than at `th`.
+.emax_ridge_diverges <- function(nll, th, idx, x) {
+  x_m <- stats::median(x[x > 0])
+  v   <- th[[idx$log_ec50]]
+  v2  <- v + log(10)
+  t2  <- th
+  t2[c(idx$emax0, idx$emax_cov)] <- th[c(idx$emax0, idx$emax_cov)] *
+    (exp(v2) + x_m) / (exp(v) + x_m)
+  t2[idx$log_ec50] <- v2
+  others <- seq_along(th)[-idx$log_ec50]
+  f <- function(r) {
+    t <- t2
+    t[others] <- r
+    nll(t)
+  }
+  o <- tryCatch(
+    stats::optim(t2[others], f, method = "BFGS",
+                 control = list(maxit = 1000, reltol = 1e-12)),
+    error = function(e) NULL
+  )
+  !is.null(o) && is.finite(o$value) && o$value < nll(th) - 1e-8
 }

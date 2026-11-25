@@ -27,10 +27,16 @@
 # `boot` are its bootstrap replicates, `est` its estimate on the original
 # data, `jack` its (grouped) jackknife estimates. Efron & Tibshirani (1993),
 # An Introduction to the Bootstrap, ch. 14.
+#
+# Returns c(lower, upper) with attribute "method": "BCa", or, when the
+# acceleration adjustment is invalid (its denominator 1 - a * (z0 + z) is not
+# positive, so the adjusted probabilities are undefined or out of order),
+# the percentile interval labelled "percentile (BCa unavailable)".
 .bca_ci <- function(boot, est, jack, level) {
-  boot <- boot[is.finite(boot)]
-  B    <- length(boot)
+  boot  <- boot[is.finite(boot)]
+  B     <- length(boot)
   pmin_ <- 1 / (B + 1)
+  probs <- c((1 - level) / 2, (1 + level) / 2)
   # Bias correction: where the estimate sits in the bootstrap distribution.
   p0 <- (sum(boot < est) + 0.5 * sum(boot == est)) / B
   z0 <- stats::qnorm(min(max(p0, pmin_), 1 - pmin_))
@@ -38,11 +44,17 @@
   jack <- jack[is.finite(jack)]
   d    <- mean(jack) - jack
   a    <- if (length(jack) > 2L && sum(d^2) > 0) sum(d^3) / (6 * sum(d^2)^1.5) else 0
-  z <- stats::qnorm(c((1 - level) / 2, (1 + level) / 2))
-  p <- stats::pnorm(z0 + (z0 + z) / (1 - a * (z0 + z)))
-  p[!is.finite(p)] <- c((1 - level) / 2, (1 + level) / 2)[!is.finite(p)]
-  p <- pmin(pmax(p, pmin_), 1 - pmin_)
-  stats::quantile(boot, p, names = FALSE)
+  z     <- stats::qnorm(probs)
+  denom <- 1 - a * (z0 + z)
+  p     <- stats::pnorm(z0 + (z0 + z) / denom)
+  ok    <- all(denom > 0) && all(is.finite(p)) && p[1] < p[2]
+  out <- if (ok) {
+    stats::quantile(boot, pmin(pmax(p, pmin_), 1 - pmin_), names = FALSE)
+  } else {
+    stats::quantile(boot, probs, names = FALSE)
+  }
+  attr(out, "method") <- if (ok) "BCa" else "percentile (BCa unavailable)"
+  out
 }
 
 
@@ -59,6 +71,12 @@
 #' falls far enough in one direction, that bound is infinite (0 for the lower
 #' bound of `ec50`), and a warning says so: the data don't determine the
 #' parameter in that direction.
+#'
+#' For EC50 in a model without EC50 covariates the profile is exact: at a
+#' fixed EC50 the model is a logistic GLM in the other parameters. Other
+#' profiles optimise the other parameters from two starting points and keep
+#' the better fit. Before a bound is located, both ends of the bracket are
+#' recomputed and checked to straddle the cut-off.
 #'
 #' Wald intervals are estimate +/- z x standard error from the Hessian. For
 #' `ec50` they are computed on the log scale and back-transformed. They need a
@@ -138,9 +156,16 @@ confint.logistic_emax <- function(object, parm, level = 0.95,
       } else {
         NULL
       }
+      # At a fixed EC50 the model is a logistic GLM in the other parameters
+      # (when EC50 has no covariates), so profile log EC50 exactly.
+      prof_fn <- if (j == object$idx$log_ec50 && ncol(object$Z_ec50) == 0L) {
+        .emax_glm_profile(object, nll)
+      } else {
+        NULL
+      }
       out[k, ] <- c(
-        .profile_bound(nll, th, j, -1, target, step, rescale),
-        .profile_bound(nll, th, j, +1, target, step, rescale)
+        .profile_bound(nll, th, j, -1, target, step, rescale, prof_fn),
+        .profile_bound(nll, th, j, +1, target, step, rescale, prof_fn)
       )
       for (side in which(is.infinite(out[k, ])))
         warning(sprintf(paste0(
@@ -164,37 +189,92 @@ confint.logistic_emax <- function(object, parm, level = 0.95,
 # it never does.
 # `rescale(v, v_prev, start)`, if given, adjusts the other parameters'
 # starting values when parameter `j` moves from `v_prev` to `v`.
+# `profile_fn(v, starts)`, if given, computes the profile exactly; otherwise
+# the other parameters are optimised from each of `starts` and the best kept.
+# Before root-finding, both ends of the bracket are recomputed with the same
+# function and must straddle `target`; if the far end turns out to be below
+# it after all (a better nuisance fit), the walk continues from there.
 .profile_bound <- function(nll, th, j, dir, target, step, rescale = NULL,
-                           max_steps = 40L) {
-  others  <- seq_along(th)[-j]
-  profile <- function(v, start) {
-    f <- function(r) {
-      t <- th
-      t[j] <- v
-      t[others] <- r
-      nll(t)
+                           profile_fn = NULL, max_steps = 40L) {
+  others <- seq_along(th)[-j]
+  if (is.null(profile_fn)) {
+    profile_fn <- function(v, starts) {
+      f <- function(r) {
+        t <- th
+        t[j] <- v
+        t[others] <- r
+        nll(t)
+      }
+      best <- NULL
+      for (st in starts) {
+        o <- tryCatch(
+          stats::optim(st, f, method = "BFGS",
+                       control = list(maxit = 1000, reltol = 1e-12)),
+          error = function(e) NULL
+        )
+        if (!is.null(o) && is.finite(o$value) &&
+            (is.null(best) || o$value < best$value))
+          best <- list(value = o$value, par = o$par)
+      }
+      best
     }
-    o <- stats::optim(start, f, method = "BFGS",
-                      control = list(maxit = 1000, reltol = 1e-12))
-    list(value = o$value, par = o$par)
   }
-  v_prev <- th[[j]]
-  start  <- th[others]
+  v_prev   <- th[[j]]
+  par_prev <- th[others]
   for (k in seq_len(max_steps)) {
-    v <- v_prev + dir * step
-    if (!is.null(rescale)) start <- rescale(v, v_prev, start)
-    p <- tryCatch(profile(v, start), error = function(e) NULL)
-    if (is.null(p) || !is.finite(p$value)) break
+    v     <- v_prev + dir * step
+    start <- if (is.null(rescale)) par_prev else rescale(v, v_prev, par_prev)
+    p <- profile_fn(v, list(start, par_prev))
+    if (is.null(p)) break
     if (p$value >= target) {
-      h <- function(u) profile(u, start)$value - target
-      return(stats::uniroot(h, sort(c(v_prev, v)),
-                            tol = 1e-6 * max(1, abs(v)))$root)
+      starts <- list(par_prev, p$par)
+      h <- function(u) {
+        q <- profile_fn(u, starts)
+        if (is.null(q)) NA_real_ else q$value - target
+      }
+      h_near <- h(v_prev)
+      h_far  <- h(v)
+      if (is.finite(h_near) && is.finite(h_far) && h_near < 0 && h_far >= 0) {
+        ends <- if (dir > 0) c(v_prev, v) else c(v, v_prev)
+        fs   <- if (dir > 0) c(h_near, h_far) else c(h_far, h_near)
+        return(stats::uniroot(h, ends, f.lower = fs[1], f.upper = fs[2],
+                              tol = 1e-6 * max(1, abs(v)))$root)
+      }
+      # Not a verified crossing: carry on from the better fit at v.
+      if (is.finite(h_far) && h_far < 0) {
+        q <- profile_fn(v, starts)
+        if (!is.null(q)) p <- q
+      }
     }
-    v_prev <- v
-    start  <- p$par
-    step   <- step * 1.5
+    v_prev   <- v
+    par_prev <- p$par
+    step     <- step * 1.5
   }
   dir * Inf
+}
+
+# Exact profile of log EC50 for a model without EC50 covariates: at fixed
+# EC50 the linear predictor is e0 + (emax + Z_emax g) h + Z_lin b with
+# h = x / (EC50 + x), a logistic GLM. Returns profile_fn(v, starts) for
+# .profile_bound(); `starts` are unused.
+.emax_glm_profile <- function(object, nll) {
+  idx <- object$idx
+  x   <- object$x
+  y   <- object$y
+  th  <- object$theta_hat
+  function(v, starts) {
+    h <- x / (exp(v) + x)
+    X <- cbind(1, h, object$Z_emax * h, object$Z_lin)
+    f <- tryCatch(
+      suppressWarnings(stats::glm.fit(X, y, family = stats::binomial())),
+      error = function(e) NULL
+    )
+    if (is.null(f) || anyNA(f$coefficients)) return(NULL)
+    t <- th
+    t[c(idx$e0, idx$emax0, idx$emax_cov, idx$lin)] <- f$coefficients
+    t[idx$log_ec50] <- v
+    list(value = nll(t), par = t[-idx$log_ec50])
+  }
 }
 
 # Start-value adjuster for profiling log EC50 or Emax (parameter `j`) that

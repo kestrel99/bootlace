@@ -169,11 +169,16 @@ options. The limits are this package's own rule of thumb.
 
 Of the warnings described under \strong{Convergence and standard errors}, a
 Hessian that is not positive definite (parameters not identified at the
-optimum) has class \code{bootlace_emax_identification_warning}, and an
-optimiser that stopped before reaching the optimum (typically EC50 running
-along the Emax/EC50 ridge) has class \code{bootlace_emax_stopped_warning}.
-\code{\link[=bootstrap_emax]{bootstrap_emax()}} keeps replicates with either, and counts each reason
-separately.
+optimum) has class \code{bootlace_emax_identification_warning}. When the
+optimiser stops before reaching the optimum, the fit is retried once
+(longer, tighter optimisation and more Newton steps). If it still stops
+short, the fit is checked for a diverging ridge: if moving EC50 tenfold
+along the Emax/EC50 ridge still improves the likelihood, the maximum is at
+the EC50 -> Inf boundary and the warning has class
+\code{bootlace_emax_ridge_warning}; otherwise it is an optimisation failure,
+with class \code{bootlace_emax_stopped_warning}. \code{\link[=bootstrap_emax]{bootstrap_emax()}} keeps
+ridge and non-identified replicates (counting each reason) but drops
+optimisation failures.
 }
 
 \section{Sample size checks}{

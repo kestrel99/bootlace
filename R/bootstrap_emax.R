@@ -11,10 +11,15 @@
 #' dropped, and the reasons are counted in `failures` and reported in a
 #' message.
 #'
-#' Sample-size, identifiability and EC50-range warnings from the refits are
-#' not treated as failures, so replicates in which EC50 runs to extreme
-#' values are kept: dropping them would make the percentile intervals look
-#' more precise than the data allow. Instead, when any retained replicate has
+#' Sample-size, identifiability, diverging-ridge and EC50-range warnings from
+#' the refits are not treated as failures, so replicates in which EC50 runs
+#' to extreme values are kept (and counted in `flag_counts`): dropping them
+#' would make the intervals look more precise than the data allow. A refit
+#' whose optimiser stopped short of the optimum even after a retry, without
+#' being on a diverging ridge, is an optimisation failure and is dropped;
+#' see **Unrealistic EC50** in [fit_logistic_emax()]. The grouped-jackknife
+#' refits used for BCa are judged the same way, and failed ones are left out
+#' of the acceleration estimate. When any retained replicate has
 #' EC50 outside the range the exposures can support (see **Unrealistic
 #' EC50** in [fit_logistic_emax()]), one detailed warning of class
 #' `bootlace_emax_ec50_warning` reports how many, the bootstrap EC50
@@ -102,20 +107,22 @@ bootstrap_emax <- function(
   }
   # Bootstrap refits use the automatic multi-start (start = NULL).
   refit <- function(i) refit_rows(sample.int(n, n, replace = TRUE), NULL)
-  # Sample-size warnings describe the data: keep. Each of these keeps the
-  # replicate but is counted under its own reason (the EC50 range is also
-  # summarised after the loop):
-  # - the optimiser stopped short of the optimum, typically EC50 running along
-  #   the Emax/EC50 ridge. These are kept on purpose: dropping them removes
-  #   exactly the replicates that show EC50 is poorly determined, and makes
-  #   the intervals too narrow.
-  # - the Hessian at the optimum isn't positive definite (poorly identified);
+  # Sample-size warnings describe the data: keep. These keep the replicate
+  # but are counted under their own reason (EC50 range is also summarised
+  # after the loop):
+  # - EC50 diverging along the Emax/EC50 ridge, checked by the fitter: the
+  #   maximum is at the EC50 -> Inf boundary. Kept on purpose: dropping them
+  #   removes exactly the replicates that show EC50 is poorly determined.
+  # - Hessian not positive definite (poorly identified);
   # - EC50 outside the range the exposures support.
-  # Anything else (e.g. optim() reporting non-convergence): drop.
+  # Dropped, with the reason recorded: an optimiser that stopped short of the
+  # optimum even after a retry and isn't on a diverging ridge (an optimisation
+  # failure, so its estimates can't be trusted), optim() non-convergence, and
+  # any other warning.
   classify <- function(w) {
     if (inherits(w, "bootlace_sample_size_warning")) return("keep")
-    if (inherits(w, "bootlace_emax_stopped_warning"))
-      return("flag:optimiser stopped short of the optimum (Emax/EC50 ridge)")
+    if (inherits(w, "bootlace_emax_ridge_warning"))
+      return("flag:EC50 diverging along the Emax/EC50 ridge")
     if (inherits(w, "bootlace_emax_identification_warning"))
       return("flag:Hessian not positive definite (poorly identified)")
     if (inherits(w, "bootlace_emax_ec50_warning"))
@@ -134,11 +141,21 @@ bootstrap_emax <- function(
   # little, so these refits start from the original estimate.
   n_grp <- min(n, 200L)
   grp   <- rep_len(seq_len(n_grp), n)
+  # Jackknife refits are judged like bootstrap refits: one that errors or
+  # raises a "drop" warning is discarded (NA) rather than used.
   jack_theta <- t(vapply(seq_len(n_grp), function(g) {
-    tryCatch(
-      suppressWarnings(refit_rows(which(grp != g), warm)),
-      error = function(e) rep(NA_real_, n_par)
+    bad <- FALSE
+    th_g <- tryCatch(
+      withCallingHandlers(
+        refit_rows(which(grp != g), warm),
+        warning = function(w) {
+          if (classify(w) == "drop") bad <<- TRUE
+          invokeRestart("muffleWarning")
+        }
+      ),
+      error = function(e) NULL
     )
+    if (is.null(th_g) || bad) rep(NA_real_, n_par) else th_g
   }, numeric(n_par)))
   colnames(jack_theta) <- th_names
 
@@ -236,13 +253,22 @@ summary.boot_emax <- function(object, ci = c("bca", "percentile"), ...) {
   if (ci == "bca" && is.null(object$jack_theta)) ci <- "percentile_fallback"
 
   # Intervals on the optimisation scale, then back-transform ec50.
-  lims <- vapply(seq_len(ncol(B)), function(j) {
+  ints <- lapply(seq_len(ncol(B)), function(j) {
     if (ci == "bca") .bca_ci(B[, j], th[[j]], object$jack_theta[, j], level)
     else stats::quantile(B[, j], c(alpha / 2, 1 - alpha / 2), names = FALSE,
                          na.rm = TRUE)
-  }, numeric(2L))
+  })
+  lims <- vapply(ints, function(r) as.numeric(r), numeric(2L))
   j_ec50 <- fit$idx$log_ec50
   lims[, j_ec50] <- exp(lims[, j_ec50])
+  # Parameters where BCa was unavailable and the percentile interval is shown.
+  no_bca <- if (ci == "bca") {
+    names(fit$coefficients)[vapply(ints, function(r) {
+      !identical(attr(r, "method"), "BCa")
+    }, logical(1L))]
+  } else {
+    character(0)
+  }
 
   # SE and bias on the reporting scale.
   boot_rep <- B
@@ -269,16 +295,20 @@ summary.boot_emax <- function(object, ci = c("bca", "percentile"), ...) {
     percentile = "percentile",
     percentile_fallback = "percentile (no jackknife fits stored for BCa)"
   )
-  attr(tbl, "ci_method") <- method_lbl
+  attr(tbl, "ci_method")      <- method_lbl
+  attr(tbl, "bca_unavailable") <- no_bca
 
-  cat("-- Bootstrap Emax Summary ------------------------------------------
-")
+  cat("-- Bootstrap Emax Summary ------------------------------------------\n")
   cat(sprintf(
-    "  Replicates : %d  |  CI level: %.0f%%  |  CI method: %s
-
-",
+    "  Replicates : %d  |  CI level: %.0f%%  |  CI method: %s\n",
     object$n_boot, level * 100, method_lbl
   ))
+  if (length(no_bca) > 0L)
+    cat(sprintf(
+      "  BCa unavailable (acceleration adjustment invalid) for: %s; percentile intervals shown.\n",
+      paste(no_bca, collapse = ", ")
+    ))
+  cat("\n")
   print(tbl)
   invisible(tbl)
 }
