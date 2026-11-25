@@ -152,7 +152,7 @@ fp_data <- function(
     cat_lv <- intersect(log_vars, terms_)
     cat_lv <- cat_lv[vapply(cat_lv, function(v) {
       col <- data[[v]]
-      !is.null(col) && (is.factor(col) || is.character(col))
+      !is.null(col) && (is.factor(col) || is.character(col) || is.logical(col))
     }, logical(1L))]
     if (length(cat_lv))
       warning("fp_data(): log_vars contains categorical predictor(s) ",
@@ -256,7 +256,7 @@ fp_data <- function(
     } else {
       # -- Continuous main effect: header + percentile rows -------------------
       col <- data[[term]]
-      if (!is.numeric(col)) next     # e.g. a logical predictor: not supported
+      if (!is.numeric(col)) next     # e.g. a matrix term: not supported
       es  <- .lin(.fp_effect_L(info, term, list(), coef_names))
       b   <- es[1]
       s   <- es[2]
@@ -497,6 +497,12 @@ fp_plot <- function(
   xlev  <- model$xlevels
   vars  <- stats::setNames(lapply(terms_, function(t) strsplit(t, ":", fixed = TRUE)[[1L]]),
                            terms_)
+  # model.matrix() codes a logical predictor as a factor with levels FALSE and
+  # TRUE (and records its contrasts), but `xlevels` omits it; add it.
+  tt   <- stats::terms(model)
+  cls  <- attr(tt, "dataClasses")
+  lgl  <- intersect(names(cls)[cls == "logical"], unlist(vars))
+  for (v in setdiff(lgl, names(xlev))) xlev[[v]] <- c("FALSE", "TRUE")
   facs  <- names(xlev)
   C     <- stats::setNames(lapply(facs, function(v) .fp_contrast_matrix(model, v, xlev[[v]])),
                            facs)
@@ -505,22 +511,17 @@ fp_plot <- function(
   # actually used for that factor in that term. The terms object's "factors"
   # attribute records it: 1 = contrasts, 2 = indicator (dummy) coding, which
   # R uses when a lower-order term is absent (e.g. `a` in `y ~ a + a:b`).
-  tt <- stats::terms(model)
   fa <- attr(tt, "factors")
-  # Without an intercept, model.matrix() also codes the first discrete
-  # variable (factor, character or logical) of the first term containing one
-  # by indicators, although "factors" still says 1 (R's modelmatrix() C
-  # code); mirror that. When that variable is logical, no factor changes.
-  # (coxph keeps the intercept attribute and drops the column itself, so this
-  # applies to GLMs.)
+  # Without an intercept, model.matrix() also codes the first factor
+  # (including character and logical variables) of the first term containing
+  # one by indicators, although "factors" still says 1 (R's modelmatrix() C
+  # code); mirror that. (coxph keeps the intercept attribute and drops the
+  # column itself, so this applies to GLMs.)
   if (!is.null(fa) && identical(attr(tt, "intercept"), 0L)) {
-    cls      <- attr(tt, "dataClasses")
-    discrete <- union(facs, names(cls)[cls %in% c("logical", "character",
-                                                  "factor", "ordered")])
     for (j in seq_len(ncol(fa))) {
-      v <- rownames(fa)[rownames(fa) %in% discrete & fa[, j] > 0L][1L]
+      v <- rownames(fa)[rownames(fa) %in% facs & fa[, j] > 0L][1L]
       if (!is.na(v)) {
-        if (v %in% facs) fa[v, j] <- 2L
+        fa[v, j] <- 2L
         break
       }
     }

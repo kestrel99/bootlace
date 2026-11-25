@@ -2,7 +2,7 @@
 
 * Fixes from the fifth follow-up scientific review (no issue):
   * `confint()` for Emax fits checks the EC50 bounds against the limiting models (EC50 -> 0 and EC50 -> Inf) for every model, including those with Emax or EC50 covariates, whose limits now allow the covariate effects that survive in the limit. Previously an EC50-covariate model could report a positive lower bound although the EC50 -> 0 limit was inside the confidence set. The EC50 boundary scan in `fit_logistic_emax()` uses the same limits.
-  * `fp_data()`: in a no-intercept model whose first discrete predictor is logical (e.g. `y ~ 0 + z + a` with logical `z`), the factor now keeps its contrasts, as in R's design matrix, instead of being reported as "not estimable".
+  * `fp_data()` shows logical predictors as two-level factors (FALSE as reference vs TRUE), including in interactions; they were previously left out of the table silently. In a no-intercept model whose first discrete predictor is logical (e.g. `y ~ 0 + z + a` with logical `z`), the factor now keeps its contrasts, as in R's design matrix, instead of being reported as "not estimable".
 
 * Fixes from the fourth follow-up scientific review (no issue):
   * `confint()` for Emax fits: the exact EC50 profile uses a basis that stays stable as EC50 -> 0 when no exposure is zero (previously the dose column was lost at tiny EC50, giving a false positive lower bound), and EC50 bounds are checked against the limiting models (EC50 -> 0 and EC50 -> Inf).

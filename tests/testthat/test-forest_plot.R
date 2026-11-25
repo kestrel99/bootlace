@@ -765,4 +765,35 @@ test_that("a leading logical predictor takes the no-intercept indicator coding",
   lp <- function(a) unname(predict(fit, data.frame(a = a, z = TRUE)))
   expect_equal(pd$est[pd$Predictor == "  B"], exp(lp("B") - lp("A")))
   expect_false(any(pd[["P-value"]] == "not estimable"))
+  # z itself: TRUE vs FALSE
+  expect_equal(pd$est[pd$Predictor == "  TRUE"],
+               unname(exp(predict(fit, data.frame(a = "A", z = TRUE)) -
+                          predict(fit, data.frame(a = "A", z = FALSE)))))
+})
+
+test_that("logical predictors are shown as FALSE vs TRUE (glm and Cox)", {
+  set.seed(4)
+  d <- data.frame(a = factor(sample(c("A", "B"), 300, TRUE)),
+                  z = runif(300) > 0.5)
+  d$y <- rbinom(300, 1, plogis(-0.5 + 0.8 * d$z))
+  fit <- glm(y ~ z * a, data = d, family = binomial)
+  pd  <- fp_data(fit, d)
+  expect_true("z" %in% pd$Predictor)
+  expect_equal(pd$Predictor[which(pd$Predictor == "z") + 1L], "  FALSE (reference)")
+  expect_equal(pd$est[pd$Predictor == "  TRUE"], exp(unname(coef(fit)[["zTRUE"]])))
+  expect_equal(pd$est[pd$Predictor == "  TRUE:B"],
+               exp(unname(coef(fit)[["zTRUE:aB"]])))
+  # Sum contrasts: the effect is still TRUE vs FALSE.
+  op    <- options(contrasts = c("contr.sum", "contr.poly"))
+  fit_s <- glm(y ~ z + a, data = d, family = binomial)
+  options(op)
+  pd_s  <- fp_data(fit_s, d)
+  lp <- function(z) unname(predict(fit_s, data.frame(a = "A", z = z)))
+  expect_equal(pd_s$est[pd_s$Predictor == "  TRUE"], exp(lp(TRUE) - lp(FALSE)))
+  # Cox
+  d$time   <- rexp(300, exp(0.5 * d$z))
+  d$status <- 1
+  cx <- survival::coxph(survival::Surv(time, status) ~ z + a, data = d)
+  pc <- fp_data(cx, d)
+  expect_equal(pc$est[pc$Predictor == "  TRUE"], exp(unname(coef(cx)[[1L]])))
 })
