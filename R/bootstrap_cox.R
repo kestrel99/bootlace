@@ -40,6 +40,9 @@
 #'     \item{`fit`}{The original `coxph` object.}
 #'     \item{`boot_coefs`}{Numeric matrix of bootstrapped log hazard-ratio
 #'       estimates (`n_success` x `p`), after dropping incomplete rows.}
+#'     \item{`boot_basehaz`}{List with one matrix (`time`, `hazard`) per
+#'       retained replicate: that refit's uncentred baseline cumulative
+#'       hazard, used by [plot_cox_survival()]. `NULL` for stratified fits.}
 #'     \item{`data`}{The rows of the original data frame that the fit used.}
 #'     \item{`formula`}{The model formula.}
 #'     \item{`conf_level`}{The requested confidence level.}
@@ -112,7 +115,7 @@ bootstrap_cox <- function(
   set.seed(seed)
   res <- .boot_loop(
     n_boot, coef_names,
-    refit    = function(i) .refit_cox(des, .resample_rows(des)),
+    refit    = function(i) .refit_cox(des, .resample_rows(des), basehaz = TRUE),
     classify = .classify_cox_warning
   )
   .boot_report(res, "bootstrap_cox", "a possibly infinite coefficient")
@@ -121,6 +124,7 @@ bootstrap_cox <- function(
     list(
       fit         = fit,
       boot_coefs  = res$coefs,
+      boot_basehaz = if (is.null(des$strata)) res$extra else NULL,
       data        = data,
       formula     = formula,
       conf_level  = conf_level,

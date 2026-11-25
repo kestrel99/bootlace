@@ -120,14 +120,21 @@ plot_cox_forest <- function(
 #' over time for each row of `newdata`, with bootstrap percentile confidence
 #' ribbons.
 #'
-#' Confidence bands are computed by fixing the baseline cumulative hazard at the
-#' original-fit estimate and varying only the linear predictor across bootstrap
-#' replicates:
-#' \deqn{S_b(t \mid x) = \exp\!\bigl(-\hat{H}_0(t)\cdot e^{x^\top\beta_b}\bigr)}
-#' where \eqn{\hat{H}_0} is from [survival::basehaz()] and \eqn{\beta_b} is the
-#' \eqn{b}-th bootstrap coefficient vector. This correctly reflects uncertainty
-#' in the covariate effects; uncertainty in the baseline hazard is not
-#' propagated.
+#' Confidence bands use each bootstrap replicate's own estimates of both the
+#' coefficients and the baseline cumulative hazard:
+#' \deqn{S_b(t \mid x) = \exp\!\bigl(-\hat{H}_{0,b}(t)\cdot e^{x^\top\beta_b}\bigr)}
+#' where \eqn{\hat{H}_{0,b}} is the uncentred baseline cumulative hazard
+#' ([survival::basehaz()]) and \eqn{\beta_b} the coefficients of the
+#' \eqn{b}-th refit, both stored by [bootstrap_cox()]. The bands therefore
+#' reflect uncertainty in absolute survival, not only in the covariate
+#' effects. (Holding the baseline fixed is not just incomplete: the uncentred
+#' baseline and the coefficients compensate for each other, so varying only
+#' the coefficients can make the bands far too wide.) For `boot_cox` objects
+#' created before this was stored, the original baseline is used for every
+#' replicate and the subtitle says "fixed baseline hazard".
+#'
+#' Before the first event time the baseline cumulative hazard is 0, so
+#' survival is 1.
 #'
 #' Stratified Cox models (those using `strata()` in the formula) are not
 #' currently supported; an error is raised if strata are detected.
@@ -205,17 +212,8 @@ plot_cox_survival <- function(
     )
 
   # Subset to requested times (step-function interpolation)
-  if (!is.null(times)) {
-    H0_at <- stats::approx(
-      x      = H0$time,
-      y      = H0$hazard,
-      xout   = times,
-      method = "constant",  # left-continuous step function
-      rule   = 2,           # extrapolate with boundary values
-      f      = 0            # left-continuous
-    )
-    H0 <- data.frame(time = H0_at$x, hazard = H0_at$y)
-  }
+  if (!is.null(times))
+    H0 <- data.frame(time = times, hazard = .h0_at(H0$time, H0$hazard, times))
 
   t_vals   <- H0$time
   h0_vals  <- H0$hazard
@@ -260,12 +258,25 @@ plot_cox_survival <- function(
   # outer(exp(lp), h0_vals): n_curves x n_times matrix of H0(t)*exp(lp)
   S_point  <- exp(-outer(exp(lp_point), h0_vals))       # n_curves x n_times
 
+  # Baseline cumulative hazard per replicate (n_boot x n_times): each refit's
+  # own estimate when bootstrap_cox() stored them, otherwise the original
+  # estimate for every replicate (older boot_cox objects).
+  fixed_baseline <- is.null(bc$boot_basehaz)
+  H0_boot <- if (fixed_baseline) {
+    matrix(h0_vals, n_boot, n_times, byrow = TRUE)
+  } else {
+    t(vapply(bc$boot_basehaz, function(h) {
+      .h0_at(h[, "time"], h[, "hazard"], t_vals)
+    }, numeric(n_times)))
+  }
+  if (n_times == 1L) H0_boot <- matrix(H0_boot, ncol = 1L)
+
   ci_lo_mat <- matrix(NA_real_, n_curves, n_times)
   ci_hi_mat <- matrix(NA_real_, n_curves, n_times)
 
   for (i in seq_len(n_curves)) {
-    # S_b_i: n_boot x n_times
-    S_b_i            <- exp(-outer(exp(lp_boot[i, ]), h0_vals))
+    # S_b_i: n_boot x n_times; row b uses replicate b's baseline and lp
+    S_b_i            <- exp(-H0_boot * exp(lp_boot[i, ]))
     ci_lo_mat[i, ]   <- apply(S_b_i, 2L, stats::quantile,
                                probs = alpha / 2,       na.rm = TRUE)
     ci_hi_mat[i, ]   <- apply(S_b_i, 2L, stats::quantile,
@@ -312,8 +323,10 @@ plot_cox_survival <- function(
   }
 
   subtitle_txt <- sprintf(
-    "%d%% bootstrap CI  (n = %d replicates, fixed baseline hazard)",
-    cl_pct, n_boot
+    "%d%% bootstrap CI  (n = %d replicates, %s)",
+    cl_pct, n_boot,
+    if (fixed_baseline) "fixed baseline hazard" else
+      "baseline hazard re-estimated per replicate"
   )
 
   # ---- Plot ------------------------------------------------------------------
@@ -343,4 +356,12 @@ plot_cox_survival <- function(
       subtitle = subtitle_txt
     ) +
     use_theme
+}
+
+
+# Step-function value of a cumulative baseline hazard at times `t`: 0 before
+# the first event time, the last value after the last one.
+.h0_at <- function(time, hazard, t) {
+  stats::approx(time, hazard, xout = t, method = "constant", f = 0,
+                yleft = 0, rule = 2)$y
 }

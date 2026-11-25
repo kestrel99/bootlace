@@ -87,7 +87,10 @@
 }
 
 # Log hazard ratios of the Cox model refitted to rows `idx` of its design.
-.refit_cox <- function(des, idx) {
+# With `basehaz = TRUE` (unstratified designs only), returns
+# list(coef =, extra =) where `extra` is the refit's uncentred baseline
+# cumulative hazard as a two-column matrix (time, hazard).
+.refit_cox <- function(des, idx, basehaz = FALSE) {
   env <- list2env(
     list(
       Y = des$y[idx], X = des$X[idx, , drop = FALSE],
@@ -103,8 +106,11 @@
   )
   f <- stats::as.formula(paste("Y ~", paste(rhs, collapse = " + ")), env = env)
   # coxph() evaluates `weights` in the formula's environment, where W lives.
-  b <- stats::coef(survival::coxph(f, weights = W, ties = des$method))
-  stats::setNames(as.numeric(b), colnames(des$X))
+  m <- survival::coxph(f, weights = W, ties = des$method)
+  b <- stats::setNames(as.numeric(stats::coef(m)), colnames(des$X))
+  if (!basehaz || !is.null(des$strata)) return(b)
+  h0 <- survival::basehaz(m, centered = FALSE)
+  list(coef = b, extra = cbind(time = h0$time, hazard = h0$hazard))
 }
 
 # ---- Resampling -------------------------------------------------------------------

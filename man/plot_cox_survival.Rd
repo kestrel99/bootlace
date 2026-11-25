@@ -58,14 +58,21 @@ over time for each row of \code{newdata}, with bootstrap percentile confidence
 ribbons.
 }
 \details{
-Confidence bands are computed by fixing the baseline cumulative hazard at the
-original-fit estimate and varying only the linear predictor across bootstrap
-replicates:
-\deqn{S_b(t \mid x) = \exp\!\bigl(-\hat{H}_0(t)\cdot e^{x^\top\beta_b}\bigr)}
-where \eqn{\hat{H}_0} is from \code{\link[survival:basehaz]{survival::basehaz()}} and \eqn{\beta_b} is the
-\eqn{b}-th bootstrap coefficient vector. This correctly reflects uncertainty
-in the covariate effects; uncertainty in the baseline hazard is not
-propagated.
+Confidence bands use each bootstrap replicate's own estimates of both the
+coefficients and the baseline cumulative hazard:
+\deqn{S_b(t \mid x) = \exp\!\bigl(-\hat{H}_{0,b}(t)\cdot e^{x^\top\beta_b}\bigr)}
+where \eqn{\hat{H}_{0,b}} is the uncentred baseline cumulative hazard
+(\code{\link[survival:basehaz]{survival::basehaz()}}) and \eqn{\beta_b} the coefficients of the
+\eqn{b}-th refit, both stored by \code{\link[=bootstrap_cox]{bootstrap_cox()}}. The bands therefore
+reflect uncertainty in absolute survival, not only in the covariate
+effects. (Holding the baseline fixed is not just incomplete: the uncentred
+baseline and the coefficients compensate for each other, so varying only
+the coefficients can make the bands far too wide.) For \code{boot_cox} objects
+created before this was stored, the original baseline is used for every
+replicate and the subtitle says "fixed baseline hazard".
+
+Before the first event time the baseline cumulative hazard is 0, so
+survival is 1.
 
 Stratified Cox models (those using \code{strata()} in the formula) are not
 currently supported; an error is raised if strata are detected.

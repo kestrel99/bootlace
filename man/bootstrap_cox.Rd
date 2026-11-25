@@ -22,6 +22,9 @@ An S3 object of class \code{"boot_cox"}, a named list with:
 \item{\code{fit}}{The original \code{coxph} object.}
 \item{\code{boot_coefs}}{Numeric matrix of bootstrapped log hazard-ratio
 estimates (\code{n_success} x \code{p}), after dropping incomplete rows.}
+\item{\code{boot_basehaz}}{List with one matrix (\code{time}, \code{hazard}) per
+retained replicate: that refit's uncentred baseline cumulative
+hazard, used by \code{\link[=plot_cox_survival]{plot_cox_survival()}}. \code{NULL} for stratified fits.}
 \item{\code{data}}{The rows of the original data frame that the fit used.}
 \item{\code{formula}}{The model formula.}
 \item{\code{conf_level}}{The requested confidence level.}
