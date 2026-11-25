@@ -51,3 +51,6 @@ rsconnect/
 
 # Default graphics device output from tests and scripts
 Rplots.pdf
+
+# Scientific review notes (local only)
+/SCIENTIFIC_REVIEW*.md
