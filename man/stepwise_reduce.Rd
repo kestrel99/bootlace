@@ -39,6 +39,8 @@ columns: \code{step}, \code{term}, \code{df}, \code{AIC}, \code{dAIC}, \code{neg
 \item{\code{kept}}{Value of \code{keep_vars}.}
 \item{\code{alpha}}{Significance threshold used.}
 \item{\code{model_type}}{\code{"Logistic"} or \code{"Cox"}.}
+\item{\code{sample_size}}{Sample-size diagnostics for the original
+(candidate) model; see \strong{Events per variable and variable selection}.}
 }
 }
 \description{
@@ -61,14 +63,64 @@ The function recovers the original data from \code{fit\$call\$data} so that
 each reduced model is refit on identical data.  If recovery fails it falls
 back to \code{\link[=model.frame]{model.frame()}} with a message.
 }
+\section{Events per variable and variable selection}{
+
+EPV is computed for the original model, whose coefficients are the
+candidate variables. The limits follow Heinze et al. (2018, Table 3):
+\itemize{
+\item EPV <= 10: variable selection is not recommended. Fit the full model,
+ideally with a shrinkage factor or penalised likelihood.
+\item 10 < EPV <= 25: selection should be followed by shrinkage (or replaced
+by penalised estimation) and accompanied by a stability investigation,
+such as bootstrap inclusion frequencies. At these EPVs, Heinze et al.
+(2018, Section 2.4.1) recommend an \code{alpha} no smaller than about 0.157,
+the AIC-equivalent level for a 1-df test. The warning says so when
+\code{alpha} is smaller.
+\item EPV > 25: no EPV warning, but a stability investigation is still
+recommended.
+}
+
+The sparse-level and total-event checks under \strong{Sample size checks} also
+apply. The EPV rule given there (below 10) is replaced by these limits.
+}
+
+\section{Sample size checks}{
+
+The model is checked against the number of events it is fitted to. Any
+problems are reported together in one warning of class
+\code{bootlace_sample_size_warning}. The diagnostics are also stored in the
+returned object as \code{sample_size} and summarised by the print method.
+\itemize{
+\item \strong{Events per variable (EPV).} Events are the number of events for a Cox
+model, or the number in the less frequent outcome class for a binary
+model. Variables are the estimated coefficients other than the intercept,
+so each factor contrast counts. A warning is given when EPV is below 10.
+Below that, Peduzzi et al. (1996) found biased regression coefficients
+and confidence intervals without proper coverage. \code{\link[=stepwise_reduce]{stepwise_reduce()}}
+uses stricter limits for variable selection.
+\item \strong{Sparse factor levels.} A level of a categorical predictor with no
+events (or, for a binary outcome, no non-events). This usually means
+separation or an infinite estimate.
+\item \strong{Too few events overall.} Fewer than 20 events in the less frequent
+outcome class. This floor is this package's own pragmatic choice, not a
+published standard.
+}
+
+These are rough rules of thumb. The strength of the effects and the
+correlation between predictors also affect how accurate the estimates are
+(Heinze et al., 2018, Section 2.1.3). To silence the warning once you have
+considered it, wrap the call in
+\verb{withCallingHandlers(<call>, bootlace_sample_size_warning = function(w) invokeRestart("muffleWarning"))}.
+}
+
 \examples{
 # ---- Logistic regression ---------------------------------------------------
 set.seed(1)
 df <- data.frame(
-  y   = rbinom(200, 1, 0.35),
-  age = rnorm(200, 50, 10),
-  bmi = rnorm(200, 27,  5),
-  sex = factor(sample(c("F", "M"), 200, replace = TRUE))
+  y   = rbinom(400, 1, 0.35),
+  age = rnorm(400, 50, 10),
+  bmi = rnorm(400, 27,  5),
+  sex = factor(sample(c("F", "M"), 400, replace = TRUE))
 )
 fit_log <- glm(y ~ age + bmi + sex, data = df, family = binomial)
 sr      <- stepwise_reduce(fit_log, alpha = 0.10)
@@ -89,6 +141,16 @@ if (requireNamespace("survival", quietly = TRUE)) {
   summary(sr_cox)
 }
 
+}
+\references{
+Peduzzi P, Concato J, Kemper E, Holford TR, Feinstein AR (1996). A
+simulation study of the number of events per variable in logistic
+regression analysis. \emph{Journal of Clinical Epidemiology}, 49(12),
+1373--1379. \doi{10.1016/S0895-4356(96)00236-3}
+
+Heinze G, Wallisch C, Dunkler D (2018). Variable selection -- A review and
+recommendations for the practicing statistician. \emph{Biometrical Journal},
+60(3), 431--449. \doi{10.1002/bimj.201700067}
 }
 \seealso{
 \code{\link[=print.stepwise_reduction]{print.stepwise_reduction()}}, \code{\link[=summary.stepwise_reduction]{summary.stepwise_reduction()}},

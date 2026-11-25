@@ -32,6 +32,8 @@
 #'     \item{`formula`}{The model formula.}
 #'     \item{`conf_level`}{The requested confidence level.}
 #'     \item{`n_boot`}{Number of successful bootstrap replicates retained.}
+#'     \item{`sample_size`}{Sample-size diagnostics; see
+#'       **Sample size checks**.}
 #'   }
 #'
 #' @seealso [summary.boot_cox()], [print.boot_cox()]
@@ -49,6 +51,7 @@
 #'   summary(bc)
 #' }
 #'
+#' @template sample-size
 #' @export
 bootstrap_cox <- function(
   fit,
@@ -60,6 +63,9 @@ bootstrap_cox <- function(
     stop("`fit` must be a fitted coxph object.")
   if (conf_level <= 0 || conf_level >= 1)
     stop("`conf_level` must be strictly between 0 and 1.")
+
+  sample_size <- .sample_size(fit)
+  .warn_sample_size(sample_size, "bootstrap_cox")
 
   formula    <- formula(fit)
   ties_method <- fit$method   # "efron", "breslow", or "exact"
@@ -136,8 +142,9 @@ bootstrap_cox <- function(
       boot_coefs = boot_coefs,
       data       = data,
       formula    = formula,
-      conf_level = conf_level,
-      n_boot     = n_success
+      conf_level  = conf_level,
+      n_boot      = n_success,
+      sample_size = sample_size
     ),
     class = "boot_cox"
   )
@@ -165,7 +172,11 @@ print.boot_cox <- function(x, ...) {
   cat("-- Bootstrap Cox Proportional Hazards ------------------------------\n")
   cat(sprintf("  Formula   : %s\n", deparse(x$formula)))
   cat(sprintf("  N obs     : %d\n", x$fit$n))
-  cat(sprintf("  N events  : %d\n", x$fit$nevent))
+  if (!is.null(x$sample_size)) {
+    cat(sprintf("  Events    : %s\n", .events_line(x$sample_size)))
+  } else {
+    cat(sprintf("  N events  : %d\n", x$fit$nevent))
+  }
   cat(sprintf("  Ties      : %s\n", x$fit$method))
   cat(sprintf("  Replicates: %d successful\n", x$n_boot))
   cat(sprintf("  CI level  : %.0f%%\n", x$conf_level * 100))

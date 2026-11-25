@@ -18,6 +18,24 @@
 #' each reduced model is refit on identical data.  If recovery fails it falls
 #' back to [model.frame()] with a message.
 #'
+#' @section Events per variable and variable selection:
+#' EPV is computed for the original model, whose coefficients are the
+#' candidate variables. The limits follow Heinze et al. (2018, Table 3):
+#'
+#' * EPV <= 10: variable selection is not recommended. Fit the full model,
+#'   ideally with a shrinkage factor or penalised likelihood.
+#' * 10 < EPV <= 25: selection should be followed by shrinkage (or replaced
+#'   by penalised estimation) and accompanied by a stability investigation,
+#'   such as bootstrap inclusion frequencies. At these EPVs, Heinze et al.
+#'   (2018, Section 2.4.1) recommend an `alpha` no smaller than about 0.157,
+#'   the AIC-equivalent level for a 1-df test. The warning says so when
+#'   `alpha` is smaller.
+#' * EPV > 25: no EPV warning, but a stability investigation is still
+#'   recommended.
+#'
+#' The sparse-level and total-event checks under **Sample size checks** also
+#' apply. The EPV rule given there (below 10) is replaced by these limits.
+#'
 #' @param fit A fitted [glm()] with `family = binomial` (any link), or a
 #'   fitted [survival::coxph()] object.
 #' @param alpha Significance threshold.  Terms with LRT p-value
@@ -39,6 +57,8 @@
 #'     \item{`kept`}{Value of `keep_vars`.}
 #'     \item{`alpha`}{Significance threshold used.}
 #'     \item{`model_type`}{`"Logistic"` or `"Cox"`.}
+#'     \item{`sample_size`}{Sample-size diagnostics for the original
+#'       (candidate) model; see **Events per variable and variable selection**.}
 #'   }
 #'
 #' @seealso [print.stepwise_reduction()], [summary.stepwise_reduction()],
@@ -48,10 +68,10 @@
 #' # ---- Logistic regression ---------------------------------------------------
 #' set.seed(1)
 #' df <- data.frame(
-#'   y   = rbinom(200, 1, 0.35),
-#'   age = rnorm(200, 50, 10),
-#'   bmi = rnorm(200, 27,  5),
-#'   sex = factor(sample(c("F", "M"), 200, replace = TRUE))
+#'   y   = rbinom(400, 1, 0.35),
+#'   age = rnorm(400, 50, 10),
+#'   bmi = rnorm(400, 27,  5),
+#'   sex = factor(sample(c("F", "M"), 400, replace = TRUE))
 #' )
 #' fit_log <- glm(y ~ age + bmi + sex, data = df, family = binomial)
 #' sr      <- stepwise_reduce(fit_log, alpha = 0.10)
@@ -72,6 +92,7 @@
 #'   summary(sr_cox)
 #' }
 #'
+#' @template sample-size
 #' @export
 stepwise_reduce <- function(
   fit,
@@ -112,6 +133,10 @@ stepwise_reduce <- function(
       stats::model.frame(fit)
     }
   )
+
+  # ---- Sample size: EPV for the candidate (full) model -------------------------
+  sample_size <- .sample_size(fit, selection = TRUE, alpha = alpha)
+  .warn_sample_size(sample_size, "stepwise_reduce")
 
   # ---- Hierarchy filter: terms that can be dropped without violating order ----
   # A term is droppable only when none of the remaining terms is a higher-order
@@ -297,7 +322,8 @@ stepwise_reduce <- function(
       dropped        = dropped,
       kept           = keep_vars,
       alpha          = alpha,
-      model_type     = model_type
+      model_type     = model_type,
+      sample_size    = sample_size
     ),
     class = "stepwise_reduction"
   )
@@ -332,6 +358,8 @@ print.stepwise_reduction <- function(x, digits = 4, ...) {
   cat(sprintf("-- Stepwise %s Model Reduction\n", x$model_type))
   cat(sprintf("   alpha = %g  |  %d step(s)  |  terms: %d -> %d\n",
               x$alpha, n_steps, n_orig, n_final))
+  if (!is.null(x$sample_size))
+    cat(sprintf("   Events   : %s\n", .events_line(x$sample_size)))
 
   if (!is.null(x$kept) && length(x$kept) > 0L)
     cat(sprintf("   Protected: %s\n", paste(x$kept, collapse = ", ")))

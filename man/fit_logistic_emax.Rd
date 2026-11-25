@@ -86,6 +86,8 @@ of model-matrix metadata (terms, xlevels, contrasts) present when
 categorical covariates were supplied; consumed by
 \code{\link[=predict.logistic_emax]{predict.logistic_emax()}} to re-expand new data consistently.}
 \item{\code{call}}{The matched function call.}
+\item{\code{sample_size}}{Sample-size diagnostics; see
+\strong{Sample size checks}.}
 }
 }
 \description{
@@ -122,6 +124,45 @@ When predicting with categorical covariates, pass new data in the same form
 contrasts and reference levels automatically.
 }
 
+\section{Exposure levels}{
+
+In addition to the \strong{Sample size checks}, a warning is given when \code{x} has
+fewer than 3 distinct non-zero values, because Emax and EC50 can't then be
+estimated separately. For factor covariates, the sparse-level check uses
+the original levels. The EPV count is all parameters except E0. EPV rules
+of thumb were developed for models with a linear predictor. Emax and EC50
+enter this model nonlinearly, so treat EPV >= 10 as a minimum.
+}
+
+\section{Sample size checks}{
+
+The model is checked against the number of events it is fitted to. Any
+problems are reported together in one warning of class
+\code{bootlace_sample_size_warning}. The diagnostics are also stored in the
+returned object as \code{sample_size} and summarised by the print method.
+\itemize{
+\item \strong{Events per variable (EPV).} Events are the number of events for a Cox
+model, or the number in the less frequent outcome class for a binary
+model. Variables are the estimated coefficients other than the intercept,
+so each factor contrast counts. A warning is given when EPV is below 10.
+Below that, Peduzzi et al. (1996) found biased regression coefficients
+and confidence intervals without proper coverage. \code{\link[=stepwise_reduce]{stepwise_reduce()}}
+uses stricter limits for variable selection.
+\item \strong{Sparse factor levels.} A level of a categorical predictor with no
+events (or, for a binary outcome, no non-events). This usually means
+separation or an infinite estimate.
+\item \strong{Too few events overall.} Fewer than 20 events in the less frequent
+outcome class. This floor is this package's own pragmatic choice, not a
+published standard.
+}
+
+These are rough rules of thumb. The strength of the effects and the
+correlation between predictors also affect how accurate the estimates are
+(Heinze et al., 2018, Section 2.1.3). To silence the warning once you have
+considered it, wrap the call in
+\verb{withCallingHandlers(<call>, bootlace_sample_size_warning = function(w) invokeRestart("muffleWarning"))}.
+}
+
 \examples{
 set.seed(42)
 n    <- 200
@@ -148,6 +189,16 @@ trt <- factor(sample(c("placebo", "low", "high"), n, replace = TRUE))
 fit4 <- fit_logistic_emax(y, dose, linear_covs = data.frame(treatment = trt))
 print(fit4)
 
+}
+\references{
+Peduzzi P, Concato J, Kemper E, Holford TR, Feinstein AR (1996). A
+simulation study of the number of events per variable in logistic
+regression analysis. \emph{Journal of Clinical Epidemiology}, 49(12),
+1373--1379. \doi{10.1016/S0895-4356(96)00236-3}
+
+Heinze G, Wallisch C, Dunkler D (2018). Variable selection -- A review and
+recommendations for the practicing statistician. \emph{Biometrical Journal},
+60(3), 431--449. \doi{10.1002/bimj.201700067}
 }
 \seealso{
 \code{\link[=predict.logistic_emax]{predict.logistic_emax()}}, \code{\link[=print.logistic_emax]{print.logistic_emax()}},

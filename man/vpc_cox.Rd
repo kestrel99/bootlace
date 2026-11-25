@@ -58,6 +58,8 @@ A list with:
 flag for times with censoring but no events.}
 \item{\code{zph}}{The \code{\link[survival:cox.zph]{survival::cox.zph()}} test of proportional hazards, or
 \code{NULL} if it couldn't be run.}
+\item{\code{sample_size}}{Sample-size diagnostics for \code{fit}; see
+\strong{Sample size checks}.}
 \item{\code{plot}}{A \code{ggplot} object. Its subtitle gives the Schoenfeld
 residual p-values: global, and for \code{by} when it is a model term.}
 }
@@ -83,6 +85,35 @@ beyond the last observed event time can't be placed by a Cox model, so it
 is censored too.
 }
 
+\section{Sample size checks}{
+
+The model is checked against the number of events it is fitted to. Any
+problems are reported together in one warning of class
+\code{bootlace_sample_size_warning}. The diagnostics are also stored in the
+returned object as \code{sample_size} and summarised by the print method.
+\itemize{
+\item \strong{Events per variable (EPV).} Events are the number of events for a Cox
+model, or the number in the less frequent outcome class for a binary
+model. Variables are the estimated coefficients other than the intercept,
+so each factor contrast counts. A warning is given when EPV is below 10.
+Below that, Peduzzi et al. (1996) found biased regression coefficients
+and confidence intervals without proper coverage. \code{\link[=stepwise_reduce]{stepwise_reduce()}}
+uses stricter limits for variable selection.
+\item \strong{Sparse factor levels.} A level of a categorical predictor with no
+events (or, for a binary outcome, no non-events). This usually means
+separation or an infinite estimate.
+\item \strong{Too few events overall.} Fewer than 20 events in the less frequent
+outcome class. This floor is this package's own pragmatic choice, not a
+published standard.
+}
+
+These are rough rules of thumb. The strength of the effects and the
+correlation between predictors also affect how accurate the estimates are
+(Heinze et al., 2018, Section 2.1.3). To silence the warning once you have
+considered it, wrap the call in
+\verb{withCallingHandlers(<call>, bootlace_sample_size_warning = function(w) invokeRestart("muffleWarning"))}.
+}
+
 \examples{
 lung <- survival::lung
 lung$status <- lung$status - 1L
@@ -93,6 +124,16 @@ fit <- survival::coxph(
 vpc <- vpc_cox(fit, lung, by = "sex", n_sim = 100, seed = 1)
 vpc$plot
 
+}
+\references{
+Peduzzi P, Concato J, Kemper E, Holford TR, Feinstein AR (1996). A
+simulation study of the number of events per variable in logistic
+regression analysis. \emph{Journal of Clinical Epidemiology}, 49(12),
+1373--1379. \doi{10.1016/S0895-4356(96)00236-3}
+
+Heinze G, Wallisch C, Dunkler D (2018). Variable selection -- A review and
+recommendations for the practicing statistician. \emph{Biometrical Journal},
+60(3), 431--449. \doi{10.1002/bimj.201700067}
 }
 \seealso{
 \code{\link[=bootstrap_cox]{bootstrap_cox()}}, \code{\link[=plot_cox_survival]{plot_cox_survival()}}

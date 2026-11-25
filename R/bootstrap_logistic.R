@@ -38,6 +38,8 @@
 #'     \item{`formula`}{The model formula.}
 #'     \item{`conf_level`}{The requested confidence level.}
 #'     \item{`n_boot`}{Number of successful bootstrap replicates retained.}
+#'     \item{`sample_size`}{Sample-size diagnostics; see
+#'       **Sample size checks**.}
 #'   }
 #'
 #' @seealso [plot_logistic_curves()], [summary.boot_logistic()]
@@ -53,6 +55,7 @@
 #' print(bl)
 #' summary(bl)
 #'
+#' @template sample-size
 #' @export
 bootstrap_logistic <- function(
   fit,
@@ -70,6 +73,9 @@ bootstrap_logistic <- function(
   if (conf_level <= 0 || conf_level >= 1) {
     stop("`conf_level` must be strictly between 0 and 1.")
   }
+
+  sample_size <- .sample_size(fit)
+  .warn_sample_size(sample_size, "bootstrap_logistic")
 
   # ---- Recover original data -------------------------------------------------
   # Use the untransformed data (not model.frame) so model.matrix() can apply
@@ -152,7 +158,8 @@ bootstrap_logistic <- function(
       data = data,
       formula = formula,
       conf_level = conf_level,
-      n_boot = n_success
+      n_boot = n_success,
+      sample_size = sample_size
     ),
     class = "boot_logistic"
   )
@@ -181,6 +188,8 @@ print.boot_logistic <- function(x, ...) {
   cat(sprintf("  Formula   : %s\n", deparse(x$formula)))
   cat(sprintf("  Link      : %s\n", x$fit$family$link))
   cat(sprintf("  N obs     : %d\n", nrow(x$data)))
+  if (!is.null(x$sample_size))
+    cat(sprintf("  Events    : %s\n", .events_line(x$sample_size)))
   cat(sprintf("  Replicates: %d successful\n", x$n_boot))
   cat(sprintf("  CI level  : %.0f%%\n", x$conf_level * 100))
   cat("\nOriginal-data coefficients:\n")

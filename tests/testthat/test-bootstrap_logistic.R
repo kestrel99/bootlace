@@ -30,7 +30,8 @@ test_that("bootstrap_logistic() returns a boot_logistic object", {
 test_that("boot_logistic object has all required fields", {
   expect_named(
     BL,
-    c("fit", "boot_coefs", "data", "formula", "conf_level", "n_boot"),
+    c("fit", "boot_coefs", "data", "formula", "conf_level", "n_boot",
+      "sample_size"),
     ignore.order = TRUE
   )
 })
@@ -176,7 +177,9 @@ test_that("warning fires when successful replicates drop below 100", {
   df_sep <- data.frame(x = c(1:5, 20:24), y = c(0, 0, 0, 0, 0, 1, 1, 1, 1, 1))
   fit_sep <- suppressWarnings(glm(y ~ x, data = df_sep, family = binomial))
   expect_warning(
-    suppressMessages(bootstrap_logistic(fit_sep, n_boot = 50L, seed = 1L)),
+    suppressMessages(quiet_sample_size(
+      bootstrap_logistic(fit_sep, n_boot = 50L, seed = 1L)
+    )),
     regexp = "replicates succeeded"
   )
 })

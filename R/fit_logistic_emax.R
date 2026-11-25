@@ -30,6 +30,14 @@
 #' (factor or data frame); [predict.logistic_emax()] re-applies the training
 #' contrasts and reference levels automatically.
 #'
+#' @section Exposure levels:
+#' In addition to the **Sample size checks**, a warning is given when `x` has
+#' fewer than 3 distinct non-zero values, because Emax and EC50 can't then be
+#' estimated separately. For factor covariates, the sparse-level check uses
+#' the original levels. The EPV count is all parameters except E0. EPV rules
+#' of thumb were developed for models with a linear predictor. Emax and EC50
+#' enter this model nonlinearly, so treat EPV >= 10 as a minimum.
+#'
 #' @param y Numeric binary outcome vector (0 or 1).
 #' @param x Numeric predictor vector (e.g. dose, concentration, time), same
 #'   length as `y`.
@@ -91,6 +99,8 @@
 #'       categorical covariates were supplied; consumed by
 #'       [predict.logistic_emax()] to re-expand new data consistently.}
 #'     \item{`call`}{The matched function call.}
+#'     \item{`sample_size`}{Sample-size diagnostics; see
+#'       **Sample size checks**.}
 #'   }
 #'
 #' @seealso [predict.logistic_emax()], [print.logistic_emax()],
@@ -122,6 +132,7 @@
 #' fit4 <- fit_logistic_emax(y, dose, linear_covs = data.frame(treatment = trt))
 #' print(fit4)
 #'
+#' @template sample-size
 #' @export
 fit_logistic_emax <- function(
   y,
@@ -327,7 +338,7 @@ fit_logistic_emax <- function(
     if (p_lin > 0) drop(Z_lin %*% th[idx_lin]) else 0
   fitted <- as.vector(stats::plogis(eta))
 
-  structure(
+  out <- structure(
     list(
       coefficients      = coefs,
       std_err           = std_err,
@@ -353,6 +364,9 @@ fit_logistic_emax <- function(
     ),
     class = "logistic_emax"
   )
+  out$sample_size <- .sample_size(out)
+  .warn_sample_size(out$sample_size, "fit_logistic_emax")
+  out
 }
 
 
@@ -397,6 +411,9 @@ print.logistic_emax <- function(x, digits = 4, ...) {
     cat("\nEC50 covariates (additive effect on log EC50):\n")
     print(fmt(ec50_nm, "log_ec50"), ...)
   }
+
+  if (!is.null(x$sample_size))
+    cat("\nEvents:", .events_line(x$sample_size), "\n")
 
   cat(
     "\nLog-likelihood:", round(x$loglik, 2),

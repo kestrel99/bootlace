@@ -10,6 +10,10 @@
 #' warnings, or fail to converge are skipped and counted. A message is emitted
 #' if any are skipped.
 #'
+#' Sample-size warnings from the refits are not treated as failures. The
+#' sample-size check runs once, in [fit_logistic_emax()], and its result is
+#' shown by [print.boot_emax()].
+#'
 #' @param fit A fitted [fit_logistic_emax()] object.
 #' @param n_boot Number of bootstrap replicates. Default `1000L`.
 #' @param seed Integer random seed passed to [set.seed()]. Default `42L`.
@@ -92,7 +96,8 @@ bootstrap_emax <- function(
           control     = list(maxit = 500)
         ),
         warning = function(w) {
-          warned <<- TRUE
+          # Sample-size warnings describe the data, not a failed refit.
+          if (!inherits(w, "bootlace_sample_size_warning")) warned <<- TRUE
           invokeRestart("muffleWarning")
         }
       ),
@@ -151,6 +156,8 @@ print.boot_emax <- function(x, ...) {
   cat("-- Bootstrap Logistic Emax -----------------------------------------\n")
   cat(sprintf("  N obs      : %d\n",  length(x$fit$x)))
   cat(sprintf("  Parameters : %d\n",  x$fit$n_par))
+  if (!is.null(x$fit$sample_size))
+    cat(sprintf("  Events     : %s\n", .events_line(x$fit$sample_size)))
   cat(sprintf("  Replicates : %d successful\n", x$n_boot))
   cat(sprintf("  CI level   : %.0f%%\n", x$conf_level * 100))
   cat("\nOriginal-data estimates:\n")

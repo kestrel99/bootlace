@@ -46,6 +46,8 @@
 #'       flag for times with censoring but no events.}
 #'     \item{`zph`}{The [survival::cox.zph()] test of proportional hazards, or
 #'       `NULL` if it couldn't be run.}
+#'     \item{`sample_size`}{Sample-size diagnostics for `fit`; see
+#'       **Sample size checks**.}
 #'     \item{`plot`}{A `ggplot` object. Its subtitle gives the Schoenfeld
 #'       residual p-values: global, and for `by` when it is a model term.}
 #'   }
@@ -62,6 +64,7 @@
 #' vpc <- vpc_cox(fit, lung, by = "sex", n_sim = 100, seed = 1)
 #' vpc$plot
 #'
+#' @template sample-size
 #' @export
 vpc_cox <- function(
   fit,
@@ -113,6 +116,8 @@ vpc_cox <- function(
       call. = FALSE
     )
   }
+  sample_size <- .sample_size(fit)
+  .warn_sample_size(sample_size, "vpc_cox")
   if (!is.null(seed)) {
     set.seed(seed)
   }
@@ -231,6 +236,7 @@ vpc_cox <- function(
     sim = sim,
     obs = obs,
     zph = zph,
+    sample_size = sample_size,
     plot = .plot_vpc_cox(
       sim,
       obs,

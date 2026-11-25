@@ -11,7 +11,7 @@ lung_fit <- function(data = lung_df()) {
 test_that("vpc_cox() returns simulated and observed curves and a plot", {
   vpc <- vpc_cox(lung_fit(), lung_df(), n_sim = 20, n_grid = 25, seed = 1)
 
-  expect_named(vpc, c("sim", "obs", "zph", "plot"))
+  expect_named(vpc, c("sim", "obs", "zph", "sample_size", "plot"))
   expect_named(vpc$sim, c("group", "time", "lo", "median", "hi"))
   expect_equal(nrow(vpc$sim), 25)
   expect_equal(levels(vpc$sim$group), "All (n = 228)")

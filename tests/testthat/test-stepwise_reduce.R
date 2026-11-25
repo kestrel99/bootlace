@@ -85,7 +85,7 @@ COXF_FIT <- coxph(Surv(time, status) ~ age + ecog + noise,        data = COXF_DF
 
 # Reductions (verbose = FALSE throughout)
 LOG_SR  <- stepwise_reduce(LOG_FIT,  alpha = 0.05, verbose = FALSE)
-FAC_SR  <- stepwise_reduce(FAC_FIT,  alpha = 0.05, verbose = FALSE)
+FAC_SR  <- quiet_sample_size(stepwise_reduce(FAC_FIT,  alpha = 0.05, verbose = FALSE))
 INT_SR  <- stepwise_reduce(INT_FIT,  alpha = 0.05, verbose = FALSE)
 COX_SR  <- stepwise_reduce(COX_FIT,  alpha = 0.05, verbose = FALSE)
 COXF_SR <- stepwise_reduce(COXF_FIT, alpha = 0.05, verbose = FALSE)
@@ -174,7 +174,7 @@ test_that("stepwise_reduce() returns a stepwise_reduction object", {
 test_that("stepwise_reduction object has all required fields", {
   expect_named(LOG_SR,
                c("final_model","original_model","step_table",
-                 "dropped","kept","alpha","model_type"),
+                 "dropped","kept","alpha","model_type","sample_size"),
                ignore.order = TRUE)
 })
 

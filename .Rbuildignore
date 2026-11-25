@@ -3,3 +3,6 @@
 ^\.positai$
 ^\.claude$
 ^Rplots\.pdf$
+^man-roxygen$
+^docs$
+^SCIENTIFIC_REVIEW\.md$

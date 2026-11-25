@@ -38,6 +38,10 @@ covariate matrices) with replacement and refits \code{\link[=fit_logistic_emax]{
 the original estimates as warm-start values. Replicates that error, produce
 warnings, or fail to converge are skipped and counted. A message is emitted
 if any are skipped.
+
+Sample-size warnings from the refits are not treated as failures. The
+sample-size check runs once, in \code{\link[=fit_logistic_emax]{fit_logistic_emax()}}, and its result is
+shown by \code{\link[=print.boot_emax]{print.boot_emax()}}.
 }
 \examples{
 set.seed(42)
