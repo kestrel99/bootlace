@@ -22,7 +22,8 @@ fp_plot(
 )
 }
 \arguments{
-\item{model}{A fitted \code{glm} (binomial family) or \code{coxph} object.}
+\item{model}{A fitted \code{coxph} object, or a logit-link binomial \code{glm}; see
+\code{\link[=fp_data]{fp_data()}}.}
 
 \item{data}{Data frame used to fit \code{model}.}
 

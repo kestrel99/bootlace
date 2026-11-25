@@ -16,7 +16,9 @@ fp_data(
 )
 }
 \arguments{
-\item{model}{A fitted \code{glm} (binomial family) or \code{coxph} object.}
+\item{model}{A fitted \code{coxph} object, or a \code{glm} with a binomial (or
+quasibinomial) family and logit link. Other models are rejected, because
+their exponentiated coefficients are not hazard or odds ratios.}
 
 \item{data}{Data frame used to fit \code{model}.}
 

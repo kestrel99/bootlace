@@ -63,7 +63,9 @@
 #' interaction involving a factor is shown as a header row with one child row
 #' per factor level present in the model.
 #'
-#' @param model   A fitted `glm` (binomial family) or `coxph` object.
+#' @param model   A fitted `coxph` object, or a `glm` with a binomial (or
+#'   quasibinomial) family and logit link. Other models are rejected, because
+#'   their exponentiated coefficients are not hazard or odds ratios.
 #' @param data    Data frame used to fit `model`.
 #' @param labels  Named character vector mapping raw variable names to
 #'   publication-ready display labels.  Unmatched names fall back to the
@@ -115,7 +117,19 @@ fp_data <- function(
   digits   = 3L,
   ci_width = 34L
 ) {
-  is_cox    <- inherits(model, "coxph")
+  # exp(coef) is a hazard ratio only for Cox models and an odds ratio only for
+  # a logit link; label nothing else as either.
+  is_cox   <- inherits(model, "coxph")
+  is_logit <- inherits(model, "glm") &&
+    model$family$family %in% c("binomial", "quasibinomial") &&
+    identical(model$family$link, "logit")
+  if (!is_cox && !is_logit)
+    stop(
+      "`model` must be a coxph fit or a binomial glm with a logit link. ",
+      "Exponentiated coefficients of other models are not hazard or odds ",
+      "ratios.",
+      call. = FALSE
+    )
   est_label <- if (is_cox) "HR (95% CI)" else "OR (95% CI)"
 
   coefs      <- stats::coef(model)
@@ -357,7 +371,8 @@ fp_data <- function(
 #' Header rows (one per predictor) receive a shaded background and bold label.
 #' P-values below 0.05 are coloured red.
 #'
-#' @param model   A fitted `glm` (binomial family) or `coxph` object.
+#' @param model   A fitted `coxph` object, or a logit-link binomial `glm`; see
+#'   [fp_data()].
 #' @param data    Data frame used to fit `model`.
 #' @param labels  Named character vector; display labels for predictor names
 #'   (passed to [fp_data()]).

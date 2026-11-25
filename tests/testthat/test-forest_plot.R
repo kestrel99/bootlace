@@ -623,3 +623,19 @@ test_that(".fp_int_coefs finds multiple levels for multi-level factor", {
   result <- bootlace:::.fp_int_coefs("age:grp", coef_names)
   expect_setequal(result, c("age:grpB", "age:grpC"))
 })
+
+# ---- SCIENTIFIC_REVIEW.md finding 4: only label true OR / HR estimates --------
+
+test_that("fp_data() rejects models whose exp(coef) isn't an OR or HR", {
+  d <- LOG_DF
+  expect_error(fp_data(lm(age ~ bmi + sex, data = d), d), "logit")
+  fit_probit <- glm(y ~ age + sex, data = d, family = binomial(link = "probit"))
+  expect_error(fp_data(fit_probit, d), "logit")
+})
+
+test_that("fp_data() accepts logit binomial and quasibinomial fits", {
+  d <- LOG_DF
+  expect_true("OR (95% CI)" %in% names(fp_data(LOG_FIT, d)))
+  fit_q <- glm(y ~ age + bmi + sex, data = d, family = quasibinomial)
+  expect_true("OR (95% CI)" %in% names(fp_data(fit_q, d)))
+})
