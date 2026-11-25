@@ -44,6 +44,8 @@ utils::globalVariables(
     "x", "y", "prob", "ci_lo", "ci_hi", "obs", "grp", "D", "M", "model",
     "fpr", "sensitivity", "threshold", "specificity",
     "term", "hr", "time", "surv", "curve",
-    "lo", "hi", "median", "group"
+    "lo", "hi", "median", "group",
+    # refit columns and variables evaluated by glm()/coxph() via NSE
+    ".bootlace_w", ".bootlace_off", "W"
   )
 )
