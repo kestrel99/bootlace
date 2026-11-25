@@ -83,9 +83,10 @@ plot_cox_forest <- function(
     )
 
   p <- p +
-    ggplot2::geom_errorbarh(
+    ggplot2::geom_errorbar(
       ggplot2::aes(xmin = ci_lo, xmax = ci_hi),
-      height    = 0.2,
+      orientation = "y",
+      width     = 0.2,
       linewidth = line_size,
       colour    = palette[[1L]]
     ) +

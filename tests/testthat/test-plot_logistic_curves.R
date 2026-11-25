@@ -202,3 +202,25 @@ test_that("log-transformed plot builds without error", {
     expect_no_error(ggplot2::ggplot_build(plots[[nm]]))
   }
 })
+
+test_that("colour_by plots build without scale conflicts or warnings", {
+  # Continuous terms used to get an unused fill scale (ggplot2 4.0 warns), and
+  # grouped observed squares replaced the fill scale of the predicted markers.
+  for (by_group in c(FALSE, TRUE)) {
+    expect_no_message(
+      plots <- plot_logistic_curves(BL, colour_by = "sex",
+                                    obs_by_group = by_group)
+    )
+    for (p in plots) expect_no_warning(ggplot2::ggplot_build(p))
+  }
+})
+
+test_that("grouped observed squares keep the predicted markers' level colours", {
+  plots <- plot_logistic_curves(BL, colour_by = "sex", obs_by_group = TRUE)
+  b       <- ggplot2::ggplot_build(plots[["trt"]])
+  # The predicted-probability markers are the layer drawn with shape 21.
+  markers <- Filter(function(d) identical(unique(d$shape), 21), b$data)
+  expect_length(markers, 1L)
+  expect_false(anyNA(markers[[1]]$fill))
+  expect_length(unique(markers[[1]]$fill), nlevels(DF$trt))
+})

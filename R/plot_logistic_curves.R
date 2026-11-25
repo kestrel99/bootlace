@@ -466,8 +466,11 @@ plot_logistic_curves <- function(
           ggplot2::scale_colour_manual(
             name = legend_title,
             values = grp_colours
-          ) +
-          ggplot2::scale_fill_manual(name = legend_title, values = grp_colours)
+          )
+        # Fill is mapped only by the grouped observed squares.
+        if (colour_obs)
+          p <- p +
+            ggplot2::scale_fill_manual(name = legend_title, values = grp_colours)
       }
 
       # =========================================================================
@@ -574,20 +577,17 @@ plot_logistic_curves <- function(
                 position = dodge_nudge,
                 inherit.aes = FALSE
               ) +
+              # Solid squares coloured by group (shape 15 uses colour only),
+              # so the fill scale stays with the predicted markers.
               ggplot2::geom_point(
                 data = obs_df,
-                ggplot2::aes(x = x, y = obs, colour = grp, fill = grp),
+                ggplot2::aes(x = x, y = obs, colour = grp),
                 size = obs_size,
-                shape = 22,
-                stroke = 1,
+                shape = 15,
                 position = dodge_nudge,
                 inherit.aes = FALSE
               ) +
               ggplot2::scale_colour_manual(
-                name = legend_title,
-                values = grp_colours
-              ) +
-              ggplot2::scale_fill_manual(
                 name = legend_title,
                 values = grp_colours
               )

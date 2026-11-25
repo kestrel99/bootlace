@@ -1,5 +1,8 @@
 # bootlace 0.1.0
 
+* bootlace now requires ggplot2 (>= 4.0.0). `roc_logistic_emax()` and `plot_cox_forest()` no longer use arguments and geoms that ggplot2 4.0 deprecates (no issue).
+* `plot_logistic_curves()` with `colour_by`: categorical predictors with `obs_by_group = TRUE` keep their per-level marker colours (the observed squares' fill scale used to replace them), and continuous predictors no longer get an unused fill scale that ggplot2 4.0 warns about (no issue).
+
 * `bootstrap_logistic()` and `bootstrap_cox()` refit from the model's own design, so the analysis rows, case weights, offsets and strata can't change between replicates. `bootstrap_cox()` resamples whole subjects when the fit has an `id` or cluster, and rejects counting-process data without one (no issue).
 * `stepwise_reduce()` refits candidate models on the full model's rows with its weights and offset, and computes the GLM likelihood-ratio statistic as the deviance difference, as `drop1()` does. This gives the same result as before except with non-integer case weights, where `logLik()` of a binomial GLM is not a true log-likelihood (no issue).
 * `roc_logistic()` and `roc_logistic_emax()` report the exact empirical AUC (ties count one half) and take the Youden-optimal threshold from every observed score; `thresholds` now only controls what is drawn. `roc_logistic()` checks that `outcome` lines up with each model's fitted values (no issue).

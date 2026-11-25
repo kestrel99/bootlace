@@ -249,7 +249,7 @@ roc_logistic_emax <- function(
         )
       ),
       hjust = 0, size = 3.2, color = "firebrick",
-      fill = "white", label.size = 0.3,
+      fill = "white", linewidth = 0.3,
       inherit.aes = FALSE
     )
   }
