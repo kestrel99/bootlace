@@ -4,22 +4,53 @@
 \name{strapwise-package}
 \alias{strapwise}
 \alias{strapwise-package}
-\title{strapwise: Bootstrap Inference and Response Curves for Logistic Regression}
+\title{strapwise: Bootstrap Inference and Plots for Logistic, Emax and Cox Models}
 \description{
-Provides case-resampling bootstrap for fitted binomial GLMs and a companion
-plotting function that generates marginal response curves for all predictors
-in the model.
+Provides case-resampling bootstrap for fitted binomial GLMs, logistic Emax
+models and Cox proportional hazards models, with companion plots and model
+diagnostics.
 }
 \details{
 The main entry points are:
+
+\strong{Logistic regression}
 \itemize{
-\item \code{\link[=bootstrap_logistic]{bootstrap_logistic()}}: bootstrap a fitted \code{glm} object.
-\item \code{\link[=compare_logistic_roc]{compare_logistic_roc()}}: compare multiple models with overlaid ROC curves.
-\item \code{\link[=plot_logistic_curves]{plot_logistic_curves()}}: generate response-curve plots from the result.
+\item \code{\link[=bootstrap_logistic]{bootstrap_logistic()}}: bootstrap a fitted binomial \code{glm}.
+\item \code{\link[=plot_logistic_curves]{plot_logistic_curves()}}: response-curve plots from the result.
+\item \code{\link[=roc_logistic]{roc_logistic()}}, \code{\link[=compare_logistic_roc]{compare_logistic_roc()}}: ROC curves for one or more
+models.
+}
+
+\strong{Logistic Emax models}
+\itemize{
+\item \code{\link[=fit_logistic_emax]{fit_logistic_emax()}}, \code{\link[=bootstrap_emax]{bootstrap_emax()}}: fit and bootstrap the model.
+\item \code{\link[=plot_emax_curve]{plot_emax_curve()}}: response-curve plot from the result.
+\item \code{\link[=roc_logistic_emax]{roc_logistic_emax()}}: ROC curve for the fit.
+}
+
+\strong{Cox proportional hazards models}
+\itemize{
+\item \code{\link[=bootstrap_cox]{bootstrap_cox()}}: bootstrap a fitted \code{coxph} model.
+\item \code{\link[=plot_cox_forest]{plot_cox_forest()}}, \code{\link[=plot_cox_survival]{plot_cox_survival()}}: hazard-ratio forest plot and
+adjusted survival curves from the result.
+\item \code{\link[=vpc_cox]{vpc_cox()}}: visual predictive check against observed Kaplan-Meier
+curves.
+}
+
+\strong{Binomial GLMs and Cox models}
+\itemize{
+\item \code{\link[=fp_data]{fp_data()}}, \code{\link[=fp_plot]{fp_plot()}}: build and render a forest plot.
+\item \code{\link[=stepwise_reduce]{stepwise_reduce()}}: backwards stepwise reduction by likelihood ratio
+test.
 }
 }
 \author{
 \strong{Maintainer}: Justin Wilkins \email{justin.wilkins@occams.com}
+
+Authors:
+\itemize{
+  \item Justin Wilkins \email{justin.wilkins@occams.com}
+}
 
 }
 \keyword{internal}

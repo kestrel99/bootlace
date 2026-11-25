@@ -1,15 +1,17 @@
 Package: strapwise
-Title: Bootstrap Inference and Response Curves for Logistic Regression
+Title: Bootstrap Inference and Plots for Logistic, Emax and Cox Models
 Version: 0.1.0
 Authors@R: person("Justin", "Wilkins", email = "justin.wilkins@occams.com",
     role = c("aut", "cre"))
 Description: Provides case-resampling bootstrap for fitted binomial GLMs,
-    returning percentile confidence intervals for all model coefficients.
-    A companion plotting function generates marginal response curves for
-    continuous predictors (probability curve with bootstrap CI ribbon and
-    observed-outcome jittered points) and predicted-probability plots for categorical
-    predictors (dot + error bars), with observed binary outcomes overlaid
-    as jittered points on both plot types.
+    logistic Emax exposure-response models and Cox proportional hazards
+    models, returning percentile confidence intervals for the model
+    parameters. Companion functions plot response curves with bootstrap
+    confidence ribbons and observed outcomes, forest plots of model
+    effects, adjusted survival curves, and ROC curves for one or more
+    models. Also provides visual predictive checks of Cox models against
+    observed Kaplan-Meier curves, and backwards stepwise model reduction
+    by likelihood ratio test.
 License: GPL-3 + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
@@ -22,7 +24,7 @@ Imports:
     grid,
     plotROC,
     scales (>= 1.2.0),
-    survival
+    survival (>= 3.4-1)
 Suggests:
     patchwork,
     knitr,
