@@ -174,7 +174,8 @@ test_that("stepwise_reduce() returns a stepwise_reduction object", {
 test_that("stepwise_reduction object has all required fields", {
   expect_named(LOG_SR,
                c("final_model","original_model","step_table",
-                 "dropped","kept","alpha","model_type","sample_size"),
+                 "dropped","kept","alpha","model_type","sample_size",
+                 "untested"),
                ignore.order = TRUE)
 })
 
@@ -413,4 +414,68 @@ test_that("print.stepwise_reduction() works for Cox result", {
 test_that("summary.stepwise_reduction() shows Cox-specific stats", {
   txt <- capture.output(summary(COX_SR))
   expect_true(any(grepl("Events|Cox|ties", txt, ignore.case = TRUE)))
+})
+
+# ===========================================================================
+# SCIENTIFIC_REVIEW.md follow-up: stepwise inference
+# ===========================================================================
+
+test_that("GLM step-table -2LL and AIC are deviance-based", {
+  sr  <- LOG_SR
+  dev <- deviance(sr$final_model)
+  k   <- sum(!is.na(coef(sr$final_model)))
+  last <- sr$step_table[nrow(sr$step_table), ]
+  expect_equal(last$neg2LL, dev)
+  expect_equal(last$AIC, dev + 2 * k)
+  # For individual 0/1 outcomes these equal the logLik()-based values
+  expect_equal(last$AIC, AIC(sr$final_model))
+})
+
+test_that("non-integer weights give a consistent step table", {
+  d   <- LOG_DF
+  set.seed(5)
+  d$w <- runif(nrow(d), 0.5, 2)
+  fit <- suppressWarnings(
+    glm(y ~ age + bmi + sbp + crp, data = d, family = binomial, weights = w)
+  )
+  sr <- quiet_sample_size(suppressWarnings(
+    stepwise_reduce(fit, alpha = 0.05, verbose = FALSE)
+  ))
+  st <- sr$step_table
+  # -2LL change from one step to the next equals that step's LRT statistic
+  prev <- c(deviance(fit), st$neg2LL[-nrow(st)])
+  expect_equal(st$neg2LL - prev, st$d_neg2LL, tolerance = 1e-8)
+  expect_equal(st$dAIC, st$d_neg2LL - 2 * st$df, tolerance = 1e-8)
+})
+
+test_that("a term with no estimable parameters is dropped with df 0", {
+  d <- LOG_DF
+  d$age2 <- 2 * d$age                     # aliased: its coefficient is NA
+  fit <- glm(y ~ age + bmi + age2, data = d, family = binomial)
+  sr  <- stepwise_reduce(fit, alpha = 0.05, verbose = FALSE)
+  # Dropping either age or age2 removes no estimated coefficient, so the first
+  # step drops one of them with df 0 and p 1, and the other stays.
+  first <- sr$step_table[1, ]
+  expect_true(first$term %in% c("age", "age2"))
+  expect_equal(first$df, 0L)
+  expect_equal(first$p, 1)
+  kept <- attr(terms(sr$final_model), "term.labels")
+  expect_equal(sum(c("age", "age2") %in% kept), 1L)
+})
+
+test_that("untestable terms are kept, recorded and warned about", {
+  d   <- LOG_DF
+  fit <- glm(y ~ log(age) + bmi, data = d, family = binomial)
+  fit$call$data <- quote(no_such_data_frame)   # force the model.frame fallback
+  expect_warning(
+    sr <- suppressMessages(stepwise_reduce(fit, verbose = FALSE)),
+    "could not be tested"
+  )
+  expect_true("bmi" %in% sr$untested$term)
+  expect_true(all(c("log(age)", "bmi") %in% attr(terms(sr$final_model), "term.labels")))
+  expect_named(sr$untested, c("step", "term", "reason"))
+})
+
+test_that("summary() flags post-selection inference as exploratory", {
+  expect_output(summary(LOG_SR), "not account for the selection")
 })

@@ -18,6 +18,33 @@
 #' each reduced model is refit on identical data.  If recovery fails it falls
 #' back to [model.frame()] with a message.
 #'
+#' @section Inference after selection:
+#' The selection is data-driven, so the p-values, standard errors and
+#' confidence intervals of `final_model` do not account for it: retained
+#' coefficients tend to be biased away from zero and their intervals are too
+#' narrow. Treat the selected model as exploratory. To quantify selection
+#' uncertainty, repeat the whole selection in bootstrap resamples (bootstrap
+#' inclusion frequencies), as recommended by Heinze et al. (2018, Section
+#' 3.1.3).
+#'
+#' @section Fit statistics:
+#' Each term is tested with a likelihood-ratio test whose degrees of freedom
+#' are the change in the number of estimated (non-`NA`) coefficients. A term
+#' that removes no estimated coefficient (for example, one that is aliased)
+#' carries no information and is dropped with `df = 0` and `p = 1`. When a
+#' term's test can't be run (the reduced refit fails or uses different
+#' observations), the term is kept, a warning names it and the reason, and it
+#' is listed in `untested`.
+#'
+#' For Cox models, `neg2LL` is -2 times the partial log-likelihood and `AIC`
+#' is `neg2LL + 2k`. For binomial GLMs, `neg2LL` is the residual deviance and
+#' `AIC` is deviance + 2k, where k is the number of estimated coefficients.
+#' For individual 0/1 outcomes with integer case weights these equal
+#' `-2 * logLik()` and [AIC()] exactly. For aggregated (`cbind()`) data or
+#' non-integer case weights they differ from the `logLik()`-based values by a
+#' constant that cancels in every comparison; unlike those values, they stay
+#' valid with non-integer weights.
+#'
 #' @section Events per variable and variable selection:
 #' EPV is computed for the original model, whose coefficients are the
 #' candidate variables. The limits follow Heinze et al. (2018, Table 3):
@@ -51,14 +78,17 @@
 #'     \item{`final_model`}{The model after reduction.}
 #'     \item{`original_model`}{The model passed as `fit`.}
 #'     \item{`step_table`}{Data frame with one row per dropped term and
-#'       columns: `step`, `term`, `df`, `AIC`, `dAIC`, `neg2LL`,
-#'       `d_neg2LL` (LRT statistic), `p`, `n_terms` (terms remaining).}
+#'       columns: `step`, `term`, `df` (change in the number of estimated
+#'       coefficients), `AIC`, `dAIC`, `neg2LL`, `d_neg2LL` (LRT statistic),
+#'       `p`, `n_terms` (terms remaining). See **Fit statistics**.}
 #'     \item{`dropped`}{Character vector of removed terms, in drop order.}
 #'     \item{`kept`}{Value of `keep_vars`.}
 #'     \item{`alpha`}{Significance threshold used.}
 #'     \item{`model_type`}{`"Logistic"` or `"Cox"`.}
 #'     \item{`sample_size`}{Sample-size diagnostics for the original
 #'       (candidate) model; see **Events per variable and variable selection**.}
+#'     \item{`untested`}{Data frame (`step`, `term`, `reason`) of terms whose
+#'       test failed at some step and that were therefore kept.}
 #'   }
 #'
 #' @seealso [print.stepwise_reduction()], [summary.stepwise_reduction()],
@@ -175,6 +205,11 @@ stepwise_reduce <- function(
       stats::as.formula(paste(". ~ . -", term))
     )
 
+    reason  <- NULL
+    on_error <- function(e) {
+      reason <<- paste("refit failed:", conditionMessage(e))
+      NULL
+    }
     reduced <- if (is_cox) {
       tryCatch(
         withCallingHandlers(
@@ -182,7 +217,7 @@ stepwise_reduce <- function(
                           weights = .bootlace_w),
           warning = function(w) invokeRestart("muffleWarning")
         ),
-        error = function(e) NULL
+        error = on_error
       )
     } else {
       tryCatch(
@@ -191,39 +226,37 @@ stepwise_reduce <- function(
                      weights = .bootlace_w, offset = .bootlace_off),
           warning = function(w) invokeRestart("muffleWarning")
         ),
-        error = function(e) NULL
+        error = on_error
       )
     }
 
     # An LRT is only valid when both models use the same observations.
-    if (!is.null(reduced) && NROW(reduced$y) != n_full)
+    if (!is.null(reduced) && NROW(reduced$y) != n_full) {
+      reason  <- "the reduced model used a different number of observations"
       reduced <- NULL
+    }
 
     if (is.null(reduced))
       return(list(p = NA_real_, df = NA_integer_, lrt = NA_real_,
-                  model = NULL))
+                  model = NULL, reason = reason))
 
-    df_diff  <- max(1L,
-                    length(stats::coef(current)) -
-                    length(stats::coef(reduced)))
-    # For a GLM use the deviance difference: it equals -2 * (difference in
-    # log-likelihood) for integer weights, and stays valid for non-integer
-    # case weights, where logLik() of a binomial GLM is not a likelihood.
-    lrt_stat <- if (is_cox) {
-      -2 * as.numeric(stats::logLik(reduced) - stats::logLik(current))
-    } else {
-      stats::deviance(reduced) - stats::deviance(current)
-    }
-    lrt_stat <- max(0, lrt_stat)
-    p_val    <- stats::pchisq(lrt_stat, df = df_diff, lower.tail = FALSE)
+    # Effective df: the change in the number of estimated (non-NA)
+    # coefficients. A term that removes none (e.g. an aliased one) carries no
+    # information, so p = 1 and it is dropped.
+    df_diff  <- .sw_n_est(current) - .sw_n_est(reduced)
+    lrt_stat <- max(0, .sw_neg2ll(reduced) - .sw_neg2ll(current))
+    p_val    <- if (df_diff <= 0L) 1 else
+      stats::pchisq(lrt_stat, df = df_diff, lower.tail = FALSE)
 
-    list(p = p_val, df = df_diff, lrt = lrt_stat, model = reduced)
+    list(p = p_val, df = df_diff, lrt = lrt_stat, model = reduced,
+         reason = NULL)
   }
 
   # ---- Main loop ---------------------------------------------------------------
   current    <- fit
   dropped    <- character(0L)
   step_rows  <- list()
+  untested   <- list()
   converged  <- FALSE
 
   if (verbose) {
@@ -248,16 +281,26 @@ stepwise_reduce <- function(
       break
     }
 
-    prev_aic    <- AIC(current)
-    prev_neg2ll <- -2 * as.numeric(stats::logLik(current))
+    prev_aic    <- .sw_aic(current)
 
     # LRT for all candidate terms
     tests  <- lapply(stats::setNames(testable, testable),
                      function(trm) .lrt_one(current, trm))
     p_vals <- vapply(tests, `[[`, numeric(1L), "p")
 
-    # Failed refits (NA p) are treated as significant  -- keep them
-    p_vals[is.na(p_vals)] <- 0
+    # Terms whose test failed can't be judged: keep them, and record why.
+    failed <- is.na(p_vals)
+    if (any(failed)) {
+      reasons <- vapply(tests[failed], `[[`, character(1L), "reason")
+      untested[[length(untested) + 1L]] <- data.frame(
+        step = iter, term = names(p_vals)[failed], reason = unname(reasons),
+        stringsAsFactors = FALSE
+      )
+      if (verbose)
+        cat(sprintf("   Step %2d  %-25s  could not be tested; kept (%s)\n",
+                    iter, names(p_vals)[failed], reasons), sep = "")
+    }
+    p_vals[failed] <- 0
 
     droppable <- p_vals[p_vals >= alpha]
 
@@ -277,8 +320,8 @@ stepwise_reduce <- function(
     current <- drop_res$model
     dropped <- c(dropped, drop_term)
 
-    cur_aic    <- AIC(current)
-    cur_neg2ll <- -2 * as.numeric(stats::logLik(current))
+    cur_aic    <- .sw_aic(current)
+    cur_neg2ll <- .sw_neg2ll(current)
     n_left     <- length(attr(stats::terms(current), "term.labels"))
 
     step_rows[[iter]] <- data.frame(
@@ -333,6 +376,24 @@ stepwise_reduce <- function(
                 length(dropped), n_final))
   }
 
+  untested <- if (length(untested) > 0L) {
+    out <- do.call(rbind, untested)
+    rownames(out) <- NULL
+    out
+  } else {
+    data.frame(step = integer(0), term = character(0),
+               reason = character(0), stringsAsFactors = FALSE)
+  }
+  if (nrow(untested) > 0L) {
+    first <- untested[!duplicated(untested$term), ]
+    warning(
+      "stepwise_reduce: ", nrow(first), " term(s) could not be tested and ",
+      "were kept: ",
+      paste0(first$term, " (", first$reason, ")", collapse = "; "),
+      call. = FALSE
+    )
+  }
+
   structure(
     list(
       final_model    = current,
@@ -342,7 +403,8 @@ stepwise_reduce <- function(
       kept           = keep_vars,
       alpha          = alpha,
       model_type     = model_type,
-      sample_size    = sample_size
+      sample_size    = sample_size,
+      untested       = untested
     ),
     class = "stepwise_reduction"
   )
@@ -398,8 +460,9 @@ print.stepwise_reduction <- function(x, digits = 4, ...) {
   tbl$p        <- format.pval(tbl$p, digits = max(2L, digits - 1L),
                                eps = 0.001)
 
-  names(tbl)[names(tbl) == "neg2LL"]   <- "-2LL"
-  names(tbl)[names(tbl) == "d_neg2LL"] <- "d(-2LL)"
+  ll_lab <- if (x$model_type == "Cox") "-2LL" else "Deviance"
+  names(tbl)[names(tbl) == "neg2LL"]   <- ll_lab
+  names(tbl)[names(tbl) == "d_neg2LL"] <- "LRT"
   names(tbl)[names(tbl) == "n_terms"]  <- "terms_left"
 
   print(tbl, row.names = FALSE)
@@ -433,11 +496,13 @@ summary.stepwise_reduction <- function(object, digits = 4, ...) {
   cat(sprintf("   Final    : %s\n", deparse(stats::formula(final))))
 
   # ---- Fit statistics ----------------------------------------------------------
-  aic_o  <- AIC(orig);        aic_f  <- AIC(final)
-  ll_o   <- -2 * as.numeric(stats::logLik(orig))
-  ll_f   <- -2 * as.numeric(stats::logLik(final))
-  bic_o  <- tryCatch(BIC(orig),  error = function(e) NA_real_)
-  bic_f  <- tryCatch(BIC(final), error = function(e) NA_real_)
+  # Deviance-based for GLMs (see .sw_neg2ll()), so these stay consistent with
+  # the step table and valid with non-integer weights.
+  aic_o  <- .sw_aic(orig);    aic_f  <- .sw_aic(final)
+  ll_o   <- .sw_neg2ll(orig); ll_f   <- .sw_neg2ll(final)
+  bic_o  <- tryCatch(.sw_bic(orig),  error = function(e) NA_real_)
+  bic_f  <- tryCatch(.sw_bic(final), error = function(e) NA_real_)
+  ll_lab <- if (object$model_type == "Cox") "-2 log-lik" else "Deviance"
 
   cat(sprintf(
     "\n   %-12s  %10s  %10s  %10s\n",
@@ -449,20 +514,22 @@ summary.stepwise_reduction <- function(object, digits = 4, ...) {
     cat(sprintf("   %-12s  %10.3f  %10.3f  %+10.3f\n",
                 "BIC", bic_o, bic_f, bic_f - bic_o))
   cat(sprintf("   %-12s  %10.3f  %10.3f  %+10.3f\n",
-              "-2 log-lik", ll_o, ll_f, ll_f - ll_o))
+              ll_lab, ll_o, ll_f, ll_f - ll_o))
 
   # ---- Overall LRT (original vs final) ----------------------------------------
-  df_overall  <- max(1L,
-                     length(stats::coef(orig)) -
-                     length(stats::coef(final)))
-  lrt_overall <- ll_f - ll_o
-  p_overall   <- stats::pchisq(lrt_overall, df = df_overall,
-                                lower.tail = FALSE)
-  cat(sprintf(
-    "\n   Overall LRT (original vs final): chi2(%d) = %.3f, p = %s\n",
-    df_overall, lrt_overall,
-    format.pval(p_overall, digits = 3, eps = 0.001)
-  ))
+  df_overall  <- .sw_n_est(orig) - .sw_n_est(final)
+  lrt_overall <- max(0, ll_f - ll_o)
+  if (df_overall > 0L) {
+    p_overall <- stats::pchisq(lrt_overall, df = df_overall,
+                               lower.tail = FALSE)
+    cat(sprintf(
+      "\n   Overall LRT (original vs final): chi2(%d) = %.3f, p = %s\n",
+      df_overall, lrt_overall,
+      format.pval(p_overall, digits = 3, eps = 0.001)
+    ))
+  } else {
+    cat("\n   Overall LRT (original vs final): no estimated parameters removed.\n")
+  }
 
   # ---- Model-type-specific extras ----------------------------------------------
   if (object$model_type == "Cox") {
@@ -476,5 +543,37 @@ summary.stepwise_reduction <- function(object, digits = 4, ...) {
                 stats::df.residual(orig), stats::df.residual(final)))
   }
 
+  if (!is.null(object$untested) && nrow(object$untested) > 0L)
+    cat(sprintf("   Untested (kept): %s\n",
+                paste(unique(object$untested$term), collapse = ", ")))
+
+  cat(paste0(
+    "\n   Note: p-values, standard errors and confidence intervals from the\n",
+    "   final model do not account for the selection process; treat the\n",
+    "   selected model as exploratory.\n"
+  ))
+
   invisible(object)
+}
+
+
+# ---- Internal fit statistics ----------------------------------------------------
+
+# Number of estimated (non-NA) coefficients.
+.sw_n_est <- function(m) sum(!is.na(stats::coef(m)))
+
+# -2 log-likelihood for Cox models; residual deviance for GLMs. For individual
+# 0/1 outcomes with integer weights the deviance equals -2 log-likelihood; for
+# aggregated data or non-integer weights (where logLik() of a binomial GLM is
+# not a likelihood) it differs by a constant that cancels in comparisons.
+.sw_neg2ll <- function(m) {
+  if (inherits(m, "coxph")) -2 * as.numeric(stats::logLik(m))
+  else stats::deviance(m)
+}
+
+.sw_aic <- function(m) .sw_neg2ll(m) + 2 * .sw_n_est(m)
+
+.sw_bic <- function(m) {
+  n <- if (inherits(m, "coxph")) m$nevent else stats::nobs(m)
+  .sw_neg2ll(m) + log(n) * .sw_n_est(m)
 }

@@ -33,14 +33,17 @@ An S3 object of class \code{"stepwise_reduction"}, a named list with:
 \item{\code{final_model}}{The model after reduction.}
 \item{\code{original_model}}{The model passed as \code{fit}.}
 \item{\code{step_table}}{Data frame with one row per dropped term and
-columns: \code{step}, \code{term}, \code{df}, \code{AIC}, \code{dAIC}, \code{neg2LL},
-\code{d_neg2LL} (LRT statistic), \code{p}, \code{n_terms} (terms remaining).}
+columns: \code{step}, \code{term}, \code{df} (change in the number of estimated
+coefficients), \code{AIC}, \code{dAIC}, \code{neg2LL}, \code{d_neg2LL} (LRT statistic),
+\code{p}, \code{n_terms} (terms remaining). See \strong{Fit statistics}.}
 \item{\code{dropped}}{Character vector of removed terms, in drop order.}
 \item{\code{kept}}{Value of \code{keep_vars}.}
 \item{\code{alpha}}{Significance threshold used.}
 \item{\code{model_type}}{\code{"Logistic"} or \code{"Cox"}.}
 \item{\code{sample_size}}{Sample-size diagnostics for the original
 (candidate) model; see \strong{Events per variable and variable selection}.}
+\item{\code{untested}}{Data frame (\code{step}, \code{term}, \code{reason}) of terms whose
+test failed at some step and that were therefore kept.}
 }
 }
 \description{
@@ -63,6 +66,37 @@ The function recovers the original data from \code{fit\$call\$data} so that
 each reduced model is refit on identical data.  If recovery fails it falls
 back to \code{\link[=model.frame]{model.frame()}} with a message.
 }
+\section{Inference after selection}{
+
+The selection is data-driven, so the p-values, standard errors and
+confidence intervals of \code{final_model} do not account for it: retained
+coefficients tend to be biased away from zero and their intervals are too
+narrow. Treat the selected model as exploratory. To quantify selection
+uncertainty, repeat the whole selection in bootstrap resamples (bootstrap
+inclusion frequencies), as recommended by Heinze et al. (2018, Section
+3.1.3).
+}
+
+\section{Fit statistics}{
+
+Each term is tested with a likelihood-ratio test whose degrees of freedom
+are the change in the number of estimated (non-\code{NA}) coefficients. A term
+that removes no estimated coefficient (for example, one that is aliased)
+carries no information and is dropped with \code{df = 0} and \code{p = 1}. When a
+term's test can't be run (the reduced refit fails or uses different
+observations), the term is kept, a warning names it and the reason, and it
+is listed in \code{untested}.
+
+For Cox models, \code{neg2LL} is -2 times the partial log-likelihood and \code{AIC}
+is \verb{neg2LL + 2k}. For binomial GLMs, \code{neg2LL} is the residual deviance and
+\code{AIC} is deviance + 2k, where k is the number of estimated coefficients.
+For individual 0/1 outcomes with integer case weights these equal
+\code{-2 * logLik()} and \code{\link[=AIC]{AIC()}} exactly. For aggregated (\code{cbind()}) data or
+non-integer case weights they differ from the \code{logLik()}-based values by a
+constant that cancels in every comparison; unlike those values, they stay
+valid with non-integer weights.
+}
+
 \section{Events per variable and variable selection}{
 
 EPV is computed for the original model, whose coefficients are the
