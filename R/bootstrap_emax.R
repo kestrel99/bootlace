@@ -6,9 +6,10 @@
 #'
 #' Each replicate resamples the rows of the original data (including all
 #' covariate matrices) with replacement and refits [fit_logistic_emax()] using
-#' the original estimates as warm-start values. Replicates that error, produce
-#' warnings, or fail to converge are skipped and counted. A message is emitted
-#' if any are skipped.
+#' the original estimates as warm-start values. Replicates that error, whose
+#' optimiser doesn't converge, or that raise any other unexpected warning are
+#' dropped, and the reasons are counted in `failures` and reported in a
+#' message.
 #'
 #' Sample-size, identifiability and EC50-range warnings from the refits are
 #' not treated as failures, so replicates in which EC50 runs to extreme
@@ -34,7 +35,11 @@
 #'       (`n_success` x `n_par`) in the optimisation parameterisation
 #'       `(e0, emax, log_ec50, ...)`  -- the same scale as `fit$theta_hat`.}
 #'     \item{`conf_level`}{The requested confidence level.}
-#'     \item{`n_boot`}{Number of successful bootstrap replicates retained.}
+#'     \item{`n_boot`}{Number of bootstrap replicates retained.}
+#'     \item{`n_requested`}{Number of bootstrap replicates requested.}
+#'     \item{`n_flagged`}{Number of retained replicates whose refit raised an
+#'       identifiability or EC50-range warning.}
+#'     \item{`failures`}{Data frame (`reason`, `n`) of dropped replicates.}
 #'   }
 #'
 #' @seealso [fit_logistic_emax()], [summary.boot_emax()]
@@ -77,77 +82,44 @@ bootstrap_emax <- function(
   Z_emax <- if (ncol(fit$Z_emax) > 0) fit$Z_emax else NULL
   Z_ec50 <- if (ncol(fit$Z_ec50) > 0) fit$Z_ec50 else NULL
 
-  boot_theta <- matrix(
-    NA_real_,
-    nrow     = n_boot,
-    ncol     = n_par,
-    dimnames = list(NULL, th_names)
-  )
-  n_failed <- 0L
-
-  set.seed(seed)
-  for (i in seq_len(n_boot)) {
+  refit <- function(i) {
     rows <- sample.int(n, n, replace = TRUE)
-
-    warned   <- FALSE
-    boot_fit <- tryCatch(
-      withCallingHandlers(
-        fit_logistic_emax(
-          y           = fit$y[rows],
-          x           = fit$x[rows],
-          linear_covs = if (!is.null(Z_lin))  Z_lin[rows, , drop = FALSE]  else NULL,
-          emax_covs   = if (!is.null(Z_emax)) Z_emax[rows, , drop = FALSE] else NULL,
-          ec50_covs   = if (!is.null(Z_ec50)) Z_ec50[rows, , drop = FALSE] else NULL,
-          start       = warm,
-          hessian     = FALSE,
-          control     = list(maxit = 500)
-        ),
-        warning = function(w) {
-          # Sample-size, identifiability and EC50-range warnings describe the
-          # data, not a failed refit: keep those replicates (the EC50 range is
-          # summarised after the loop).
-          keep <- inherits(w, c(
-            "bootlace_sample_size_warning",
-            "bootlace_emax_identification_warning",
-            "bootlace_emax_ec50_warning"
-          ))
-          if (!keep) warned <<- TRUE
-          invokeRestart("muffleWarning")
-        }
-      ),
-      error = function(e) NULL
-    )
-
-    if (is.null(boot_fit) || warned) {
-      n_failed <- n_failed + 1L
-      next
-    }
-
-    boot_theta[i, ] <- boot_fit$theta_hat
+    fit_logistic_emax(
+      y           = fit$y[rows],
+      x           = fit$x[rows],
+      linear_covs = if (!is.null(Z_lin))  Z_lin[rows, , drop = FALSE]  else NULL,
+      emax_covs   = if (!is.null(Z_emax)) Z_emax[rows, , drop = FALSE] else NULL,
+      ec50_covs   = if (!is.null(Z_ec50)) Z_ec50[rows, , drop = FALSE] else NULL,
+      start       = warm,
+      hessian     = FALSE,
+      control     = list(maxit = 500)
+    )$theta_hat
+  }
+  # Sample-size warnings describe the data: keep. Identifiability and EC50-range
+  # warnings: keep and count (the EC50 range is summarised after the loop).
+  # Anything else (e.g. optimiser non-convergence): drop.
+  classify <- function(w) {
+    if (inherits(w, "bootlace_sample_size_warning")) return("keep")
+    if (inherits(w, c("bootlace_emax_identification_warning",
+                      "bootlace_emax_ec50_warning"))) return("flag")
+    "drop"
   }
 
-  if (n_failed > 0L)
-    message(sprintf(
-      "bootstrap_emax: %d replicate(s) skipped due to errors, warnings, or non-convergence.",
-      n_failed
-    ))
+  set.seed(seed)
+  res <- .boot_loop(n_boot, th_names, refit, classify)
+  .boot_report(res, "bootstrap_emax", "weakly identified Emax/EC50")
 
-  boot_theta <- boot_theta[stats::complete.cases(boot_theta), , drop = FALSE]
-  n_success  <- nrow(boot_theta)
-
-  if (n_success < 100L)
-    warning(sprintf(
-      "Only %d bootstrap replicates succeeded; CIs may be unreliable.", n_success
-    ))
-
-  .warn_boot_ec50(exp(boot_theta[, fit$idx$log_ec50]), fit$x, conf_level)
+  .warn_boot_ec50(exp(res$coefs[, fit$idx$log_ec50]), fit$x, conf_level)
 
   structure(
     list(
-      fit        = fit,
-      boot_theta = boot_theta,
-      conf_level = conf_level,
-      n_boot     = n_success
+      fit         = fit,
+      boot_theta  = res$coefs,
+      conf_level  = conf_level,
+      n_boot      = nrow(res$coefs),
+      n_requested = res$n_requested,
+      n_flagged   = res$n_flagged,
+      failures    = res$failures
     ),
     class = "boot_emax"
   )
@@ -174,7 +146,8 @@ print.boot_emax <- function(x, ...) {
   cat(sprintf("  Parameters : %d\n",  x$fit$n_par))
   if (!is.null(x$fit$sample_size))
     cat(sprintf("  Events     : %s\n", .events_line(x$fit$sample_size)))
-  cat(sprintf("  Replicates : %d successful\n", x$n_boot))
+  cat(sprintf("  Replicates : %s\n",
+              .boot_replicates_line(x, "weakly identified Emax/EC50")))
   cat(sprintf("  CI level   : %.0f%%\n", x$conf_level * 100))
   cat("\nOriginal-data estimates:\n")
   print(x$fit$coefficients)

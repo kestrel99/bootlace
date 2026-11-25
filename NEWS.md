@@ -1,5 +1,7 @@
 # bootlace 0.1.0
 
+* `bootstrap_logistic()`, `bootstrap_cox()` and `bootstrap_emax()` no longer drop every replicate that warns, which conditioned the bootstrap on well-behaved samples. Benign warnings (non-integer weights) are ignored; separation, infinite-coefficient and Emax identifiability warnings keep the replicate and are counted in `n_flagged`; errors, non-convergence, other warnings and `NA` coefficients drop it, with reasons in `failures`. Results also record `n_requested` (no issue).
+
 * bootlace now requires ggplot2 (>= 4.0.0). `roc_logistic_emax()` and `plot_cox_forest()` no longer use arguments and geoms that ggplot2 4.0 deprecates (no issue).
 * `plot_logistic_curves()` with `colour_by`: categorical predictors with `obs_by_group = TRUE` keep their per-level marker colours (the observed squares' fill scale used to replace them), and continuous predictors no longer get an unused fill scale that ggplot2 4.0 warns about (no issue).
 

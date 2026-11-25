@@ -31,6 +31,7 @@ test_that("boot_logistic object has all required fields", {
   expect_named(
     BL,
     c("fit", "boot_coefs", "data", "formula", "conf_level", "n_boot",
+      "n_requested", "n_flagged", "failures",
       "sample_size"),
     ignore.order = TRUE
   )
@@ -184,14 +185,14 @@ test_that("warning fires when successful replicates drop below 100", {
   )
 })
 
-test_that("warning-generating bootstrap refits are skipped and counted", {
+test_that("separation replicates are kept and reported, not skipped", {
   set.seed(42)
   df_sep <- data.frame(x = c(1:5, 20:24), y = c(0, 0, 0, 0, 0, 1, 1, 1, 1, 1))
   fit_sep <- suppressWarnings(glm(y ~ x, data = df_sep, family = binomial))
 
   expect_message(
     suppressWarnings(bootstrap_logistic(fit_sep, n_boot = 20L, seed = 1L)),
-    regexp = "skipped due to errors or warnings"
+    regexp = "showed separation"
   )
 })
 

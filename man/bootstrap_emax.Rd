@@ -24,7 +24,11 @@ An S3 object of class \code{"boot_emax"}, a named list with:
 (\code{n_success} x \code{n_par}) in the optimisation parameterisation
 \verb{(e0, emax, log_ec50, ...)}  -- the same scale as \code{fit$theta_hat}.}
 \item{\code{conf_level}}{The requested confidence level.}
-\item{\code{n_boot}}{Number of successful bootstrap replicates retained.}
+\item{\code{n_boot}}{Number of bootstrap replicates retained.}
+\item{\code{n_requested}}{Number of bootstrap replicates requested.}
+\item{\code{n_flagged}}{Number of retained replicates whose refit raised an
+identifiability or EC50-range warning.}
+\item{\code{failures}}{Data frame (\code{reason}, \code{n}) of dropped replicates.}
 }
 }
 \description{
@@ -35,9 +39,10 @@ result can be inspected via \code{\link[=print.boot_emax]{print.boot_emax()}} an
 \details{
 Each replicate resamples the rows of the original data (including all
 covariate matrices) with replacement and refits \code{\link[=fit_logistic_emax]{fit_logistic_emax()}} using
-the original estimates as warm-start values. Replicates that error, produce
-warnings, or fail to converge are skipped and counted. A message is emitted
-if any are skipped.
+the original estimates as warm-start values. Replicates that error, whose
+optimiser doesn't converge, or that raise any other unexpected warning are
+dropped, and the reasons are counted in \code{failures} and reported in a
+message.
 
 Sample-size, identifiability and EC50-range warnings from the refits are
 not treated as failures, so replicates in which EC50 runs to extreme

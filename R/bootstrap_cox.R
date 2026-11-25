@@ -21,10 +21,13 @@
 #' `fit$call$data`) that the fit used. If the call environment cannot be
 #' evaluated it falls back to `model.frame(fit)` with a warning.
 #'
-#' Replicates that error or produce warnings during refitting (e.g. Firth
-#' correction triggers, collinearity warnings) are skipped and counted. If any
-#' are skipped a message is emitted. Replicates with any `NA` coefficient are
-#' dropped before the result is returned.
+#' Refits that warn are not all dropped, because that would condition the
+#' bootstrap on well-behaved samples. A replicate whose only warning is that a
+#' coefficient may be infinite (no events in some group of the resample) is
+#' kept and counted in `n_flagged`, so the percentile intervals reflect that
+#' instability. Replicates that error, fail to converge, raise any other
+#' warning, or have an `NA` coefficient are dropped, and the reasons are
+#' counted in `failures` and reported in a message.
 #'
 #' @param fit A fitted [survival::coxph()] object.
 #' @param n_boot Number of bootstrap replicates. Default `1000L`.
@@ -40,7 +43,11 @@
 #'     \item{`data`}{The rows of the original data frame that the fit used.}
 #'     \item{`formula`}{The model formula.}
 #'     \item{`conf_level`}{The requested confidence level.}
-#'     \item{`n_boot`}{Number of successful bootstrap replicates retained.}
+#'     \item{`n_boot`}{Number of bootstrap replicates retained.}
+#'     \item{`n_requested`}{Number of bootstrap replicates requested.}
+#'     \item{`n_flagged`}{Number of retained replicates with a possibly
+#'       infinite coefficient.}
+#'     \item{`failures`}{Data frame (`reason`, `n`) of dropped replicates.}
 #'     \item{`sample_size`}{Sample-size diagnostics; see
 #'       **Sample size checks**.}
 #'   }
@@ -103,61 +110,24 @@ bootstrap_cox <- function(
 
   # ---- Bootstrap loop --------------------------------------------------------
   set.seed(seed)
-  boot_coefs <- matrix(
-    NA_real_,
-    nrow     = n_boot,
-    ncol     = length(coef_names),
-    dimnames = list(NULL, coef_names)
+  res <- .boot_loop(
+    n_boot, coef_names,
+    refit    = function(i) .refit_cox(des, .resample_rows(des)),
+    classify = .classify_cox_warning
   )
-  n_failed <- 0L
-
-  for (i in seq_len(n_boot)) {
-    rows <- .resample_rows(des)
-
-    warned <- FALSE
-    b <- tryCatch(
-      withCallingHandlers(
-        .refit_cox(des, rows),
-        warning = function(w) {
-          warned <<- TRUE
-          invokeRestart("muffleWarning")
-        }
-      ),
-      error = function(e) NULL
-    )
-
-    if (is.null(b) || warned) {
-      n_failed <- n_failed + 1L
-      next
-    }
-
-    # Degenerate columns (e.g. an absent factor level) come back as NA
-    boot_coefs[i, ] <- b
-  }
-
-  if (n_failed > 0L)
-    message(sprintf(
-      "bootstrap_cox: %d replicate(s) skipped due to errors or warnings.",
-      n_failed
-    ))
-
-  boot_coefs <- boot_coefs[stats::complete.cases(boot_coefs), , drop = FALSE]
-  n_success  <- nrow(boot_coefs)
-
-  if (n_success < 100L)
-    warning(sprintf(
-      "Only %d bootstrap replicates succeeded; CIs may be unreliable.",
-      n_success
-    ))
+  .boot_report(res, "bootstrap_cox", "a possibly infinite coefficient")
 
   structure(
     list(
-      fit        = fit,
-      boot_coefs = boot_coefs,
-      data       = data,
-      formula    = formula,
+      fit         = fit,
+      boot_coefs  = res$coefs,
+      data        = data,
+      formula     = formula,
       conf_level  = conf_level,
-      n_boot      = n_success,
+      n_boot      = nrow(res$coefs),
+      n_requested = res$n_requested,
+      n_flagged   = res$n_flagged,
+      failures    = res$failures,
       sample_size = sample_size
     ),
     class = "boot_cox"
@@ -192,7 +162,8 @@ print.boot_cox <- function(x, ...) {
     cat(sprintf("  N events  : %d\n", x$fit$nevent))
   }
   cat(sprintf("  Ties      : %s\n", x$fit$method))
-  cat(sprintf("  Replicates: %d successful\n", x$n_boot))
+  cat(sprintf("  Replicates: %s\n",
+              .boot_replicates_line(x, "a possibly infinite coefficient")))
   cat(sprintf("  CI level  : %.0f%%\n", x$conf_level * 100))
   cat("\nOriginal-data log hazard ratios:\n")
   print(coef(x$fit))

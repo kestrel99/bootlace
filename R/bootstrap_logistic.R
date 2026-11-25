@@ -21,10 +21,15 @@
 #' `model.frame(fit)` with a warning; in that case formulae containing inline
 #' transformations may not plot correctly.
 #'
-#' Bootstrap replicates that error or generate warnings during refitting are
-#' skipped and counted. If any replicates are skipped, a message is emitted.
-#' Replicates with any `NA` coefficient (e.g. arising from complete separation
-#' in a resample) are also dropped before the result is returned.
+#' Refits that warn are not all dropped, because that would condition the
+#' bootstrap on well-behaved samples. A replicate whose only warning is about
+#' non-integer successes (from non-integer case weights) is kept. One that
+#' shows separation (fitted probabilities of 0 or 1) is kept and counted in
+#' `n_flagged`, so the percentile intervals reflect that instability.
+#' Replicates that error, fail to converge, raise any other warning, or have
+#' an `NA` coefficient (e.g. a factor level absent from the resample) are
+#' dropped, and the reasons are counted in `failures` and reported in a
+#' message.
 #'
 #' @param fit A fitted [glm()] object with `family = binomial` (any link).
 #' @param n_boot Number of bootstrap replicates. Default `1000L`.
@@ -43,7 +48,10 @@
 #'       the fit used.}
 #'     \item{`formula`}{The model formula.}
 #'     \item{`conf_level`}{The requested confidence level.}
-#'     \item{`n_boot`}{Number of successful bootstrap replicates retained.}
+#'     \item{`n_boot`}{Number of bootstrap replicates retained.}
+#'     \item{`n_requested`}{Number of bootstrap replicates requested.}
+#'     \item{`n_flagged`}{Number of retained replicates that showed separation.}
+#'     \item{`failures`}{Data frame (`reason`, `n`) of dropped replicates.}
 #'     \item{`sample_size`}{Sample-size diagnostics; see
 #'       **Sample size checks**.}
 #'   }
@@ -104,64 +112,25 @@ bootstrap_logistic <- function(
 
   # ---- Bootstrap loop --------------------------------------------------------
   set.seed(seed)
-  boot_coefs <- matrix(
-    NA_real_,
-    nrow = n_boot,
-    ncol = length(coef_names),
-    dimnames = list(NULL, coef_names)
+  res <- .boot_loop(
+    n_boot, coef_names,
+    refit    = function(i) .refit_glm(des, .resample_rows(des)),
+    classify = .classify_glm_warning
   )
-  n_failed <- 0L
-
-  for (i in seq_len(n_boot)) {
-    idx <- .resample_rows(des)
-
-    warned <- FALSE
-    b <- tryCatch(
-      withCallingHandlers(
-        .refit_glm(des, idx),
-        warning = function(w) {
-          warned <<- TRUE
-          invokeRestart("muffleWarning")
-        }
-      ),
-      error = function(e) NULL
-    )
-
-    if (is.null(b) || warned) {
-      n_failed <- n_failed + 1L
-      next
-    }
-
-    # Aliased columns (e.g. a factor level absent from the resample) are NA
-    boot_coefs[i, ] <- b
-  }
-
-  if (n_failed > 0L) {
-    message(sprintf(
-      "bootstrap_logistic: %d replicate(s) were skipped due to errors or warnings.",
-      n_failed
-    ))
-  }
-
-  # Drop replicates with any NA coefficient (e.g. from complete separation)
-  boot_coefs <- boot_coefs[stats::complete.cases(boot_coefs), , drop = FALSE]
-
-  n_success <- nrow(boot_coefs)
-  if (n_success < 100L) {
-    warning(sprintf(
-      "Only %d bootstrap replicates succeeded; CIs may be unreliable.",
-      n_success
-    ))
-  }
+  .boot_report(res, "bootstrap_logistic",
+               "separation (fitted probabilities of 0 or 1)")
 
   structure(
     list(
       fit = fit,
-      boot_coefs = boot_coefs,
+      boot_coefs = res$coefs,
       data = data,
       formula = formula,
       conf_level = conf_level,
-      n_boot = n_success,
+      n_boot = nrow(res$coefs),
+      n_requested = res$n_requested,
+      n_flagged = res$n_flagged,
+      failures = res$failures,
       sample_size = sample_size
     ),
     class = "boot_logistic"
@@ -193,7 +162,7 @@ print.boot_logistic <- function(x, ...) {
   cat(sprintf("  N obs     : %d\n", nrow(x$data)))
   if (!is.null(x$sample_size))
     cat(sprintf("  Events    : %s\n", .events_line(x$sample_size)))
-  cat(sprintf("  Replicates: %d successful\n", x$n_boot))
+  cat(sprintf("  Replicates: %s\n", .boot_replicates_line(x, "separation")))
   cat(sprintf("  CI level  : %.0f%%\n", x$conf_level * 100))
   cat("\nOriginal-data coefficients:\n")
   print(coef(x$fit))

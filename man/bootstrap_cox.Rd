@@ -25,7 +25,11 @@ estimates (\code{n_success} x \code{p}), after dropping incomplete rows.}
 \item{\code{data}}{The rows of the original data frame that the fit used.}
 \item{\code{formula}}{The model formula.}
 \item{\code{conf_level}}{The requested confidence level.}
-\item{\code{n_boot}}{Number of successful bootstrap replicates retained.}
+\item{\code{n_boot}}{Number of bootstrap replicates retained.}
+\item{\code{n_requested}}{Number of bootstrap replicates requested.}
+\item{\code{n_flagged}}{Number of retained replicates with a possibly
+infinite coefficient.}
+\item{\code{failures}}{Data frame (\code{reason}, \code{n}) of dropped replicates.}
 \item{\code{sample_size}}{Sample-size diagnostics; see
 \strong{Sample size checks}.}
 }
@@ -52,10 +56,13 @@ The returned \code{data} holds the rows of the original data (from
 \code{fit$call$data}) that the fit used. If the call environment cannot be
 evaluated it falls back to \code{model.frame(fit)} with a warning.
 
-Replicates that error or produce warnings during refitting (e.g. Firth
-correction triggers, collinearity warnings) are skipped and counted. If any
-are skipped a message is emitted. Replicates with any \code{NA} coefficient are
-dropped before the result is returned.
+Refits that warn are not all dropped, because that would condition the
+bootstrap on well-behaved samples. A replicate whose only warning is that a
+coefficient may be infinite (no events in some group of the resample) is
+kept and counted in \code{n_flagged}, so the percentile intervals reflect that
+instability. Replicates that error, fail to converge, raise any other
+warning, or have an \code{NA} coefficient are dropped, and the reasons are
+counted in \code{failures} and reported in a message.
 }
 \section{Sample size checks}{
 

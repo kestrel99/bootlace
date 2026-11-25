@@ -28,7 +28,10 @@ replicates and rows with any \code{NA} coefficient.}
 the fit used.}
 \item{\code{formula}}{The model formula.}
 \item{\code{conf_level}}{The requested confidence level.}
-\item{\code{n_boot}}{Number of successful bootstrap replicates retained.}
+\item{\code{n_boot}}{Number of bootstrap replicates retained.}
+\item{\code{n_requested}}{Number of bootstrap replicates requested.}
+\item{\code{n_flagged}}{Number of retained replicates that showed separation.}
+\item{\code{failures}}{Data frame (\code{reason}, \code{n}) of dropped replicates.}
 \item{\code{sample_size}}{Sample-size diagnostics; see
 \strong{Sample size checks}.}
 }
@@ -55,10 +58,15 @@ when the fit was constructed inside another function --it falls back to
 \code{model.frame(fit)} with a warning; in that case formulae containing inline
 transformations may not plot correctly.
 
-Bootstrap replicates that error or generate warnings during refitting are
-skipped and counted. If any replicates are skipped, a message is emitted.
-Replicates with any \code{NA} coefficient (e.g. arising from complete separation
-in a resample) are also dropped before the result is returned.
+Refits that warn are not all dropped, because that would condition the
+bootstrap on well-behaved samples. A replicate whose only warning is about
+non-integer successes (from non-integer case weights) is kept. One that
+shows separation (fitted probabilities of 0 or 1) is kept and counted in
+\code{n_flagged}, so the percentile intervals reflect that instability.
+Replicates that error, fail to converge, raise any other warning, or have
+an \code{NA} coefficient (e.g. a factor level absent from the resample) are
+dropped, and the reasons are counted in \code{failures} and reported in a
+message.
 }
 \section{Sample size checks}{
 
