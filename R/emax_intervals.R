@@ -97,7 +97,7 @@
 #' In a simulation study (100 data sets of n = 300; see
 #' `tests/testthat/test-coverage.R`), nominal 95% profile intervals covered
 #' E0, Emax and EC50 in 92-95% of samples in a well-identified design and
-#' 91-99% in a weakly identified one, where bootstrap percentile intervals
+#' 89-99% in a weakly identified one, where bootstrap percentile intervals
 #' covered Emax in only 86% and 83%. The BCa intervals of
 #' [summary.boot_emax()] covered 89-95%.
 #'
