@@ -277,10 +277,12 @@ plot_cox_survival <- function(
 
   for (i in seq_len(n_curves)) {
     # S_b_i: n_boot x n_times; row b uses replicate b's baseline and lp
-    S_b_i            <- exp(-H0_boot * exp(lp_boot[i, ]))
-    ci_lo_mat[i, ]   <- apply(S_b_i, 2L, stats::quantile,
+    # Quantiles on the requested scale, so the bounds are ordered whether the
+    # transformation increases (cumhaz) or decreases (event) with S.
+    F_b_i            <- .transform(exp(-H0_boot * exp(lp_boot[i, ])))
+    ci_lo_mat[i, ]   <- apply(F_b_i, 2L, stats::quantile,
                                probs = alpha / 2,       na.rm = TRUE)
-    ci_hi_mat[i, ]   <- apply(S_b_i, 2L, stats::quantile,
+    ci_hi_mat[i, ]   <- apply(F_b_i, 2L, stats::quantile,
                                probs = 1 - alpha / 2,   na.rm = TRUE)
   }
 
@@ -291,22 +293,13 @@ plot_cox_survival <- function(
     data.frame(
       time  = t_vals,
       surv  = .transform(S_point[i, ]),
-      ci_lo = .transform(ci_lo_mat[i, ]),
-      ci_hi = .transform(ci_hi_mat[i, ]),
+      ci_lo = ci_lo_mat[i, ],
+      ci_hi = ci_hi_mat[i, ],
       curve = curve_labels[[i]],
       stringsAsFactors = FALSE
     )
   }))
   plot_df$curve <- factor(plot_df$curve, levels = curve_labels)
-
-  # For "event" and "cumhaz" the CI bounds are swapped because the
-  # transformation is monotone-decreasing (event) or monotone-increasing
-  # but the bootstrap quantiles were on the S scale.
-  if (fun == "event") {
-    lo_tmp        <- plot_df$ci_lo
-    plot_df$ci_lo <- plot_df$ci_hi
-    plot_df$ci_hi <- lo_tmp
-  }
 
   # ---- Theme -----------------------------------------------------------------
   use_theme <- if (!is.null(base_theme)) {

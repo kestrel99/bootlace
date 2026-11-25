@@ -32,9 +32,13 @@
 #' are the change in the number of estimated (non-`NA`) coefficients. A term
 #' that removes no estimated coefficient (for example, one that is aliased)
 #' carries no information and is dropped with `df = 0` and `p = 1`. When a
-#' term's test can't be run (the reduced refit fails or uses different
+#' term's test can't be run or can't be trusted (the reduced refit fails,
+#' doesn't converge, raises another unexpected warning, or uses different
 #' observations), the term is kept, a warning names it and the reason, and it
-#' is listed in `untested`.
+#' is listed in `untested`. Separation or a possibly infinite coefficient in
+#' the reduced refit doesn't invalidate the likelihood-ratio test, so that
+#' test is used, but the comparison is listed in `test_warnings` and a
+#' warning is given. Warnings about non-integer binomial weights are ignored.
 #'
 #' For Cox models, `neg2LL` is -2 times the partial log-likelihood and `AIC`
 #' is `neg2LL + 2k`. For binomial GLMs, `neg2LL` is the residual deviance and
@@ -89,6 +93,9 @@
 #'       (candidate) model; see **Events per variable and variable selection**.}
 #'     \item{`untested`}{Data frame (`step`, `term`, `reason`) of terms whose
 #'       test failed at some step and that were therefore kept.}
+#'     \item{`test_warnings`}{Data frame (`step`, `term`, `warning`) of
+#'       comparisons whose reduced refit showed separation or a possibly
+#'       infinite coefficient; their tests were still used.}
 #'   }
 #'
 #' @seealso [print.stepwise_reduction()], [summary.stepwise_reduction()],
@@ -210,12 +217,25 @@ stepwise_reduce <- function(
       reason <<- paste("refit failed:", conditionMessage(e))
       NULL
     }
+    # Classify refit warnings as the bootstraps do: benign ones are ignored,
+    # separation / infinite coefficients are recorded but the LRT is still
+    # used (it stays valid, unlike a Wald test), anything else (e.g.
+    # non-convergence) makes the comparison unreliable.
+    flags <- character(0)
+    on_warning <- function(w) {
+      cls <- if (is_cox) .classify_cox_warning(w) else .classify_glm_warning(w)
+      msg <- conditionMessage(w)
+      if (cls == "flag") flags <<- c(flags, msg)
+      if (cls == "drop" && is.null(reason))
+        reason <<- paste("refit warning:", msg)
+      invokeRestart("muffleWarning")
+    }
     reduced <- if (is_cox) {
       tryCatch(
         withCallingHandlers(
           survival::coxph(new_f, data = fit_data, ties = ties_method,
                           weights = .bootlace_w),
-          warning = function(w) invokeRestart("muffleWarning")
+          warning = on_warning
         ),
         error = on_error
       )
@@ -224,7 +244,7 @@ stepwise_reduce <- function(
         withCallingHandlers(
           stats::glm(new_f, data = fit_data, family = current$family,
                      weights = .bootlace_w, offset = .bootlace_off),
-          warning = function(w) invokeRestart("muffleWarning")
+          warning = on_warning
         ),
         error = on_error
       )
@@ -236,9 +256,10 @@ stepwise_reduce <- function(
       reduced <- NULL
     }
 
+    if (!is.null(reason)) reduced <- NULL
     if (is.null(reduced))
       return(list(p = NA_real_, df = NA_integer_, lrt = NA_real_,
-                  model = NULL, reason = reason))
+                  model = NULL, reason = reason, flags = character(0)))
 
     # Effective df: the change in the number of estimated (non-NA)
     # coefficients. A term that removes none (e.g. an aliased one) carries no
@@ -249,7 +270,7 @@ stepwise_reduce <- function(
       stats::pchisq(lrt_stat, df = df_diff, lower.tail = FALSE)
 
     list(p = p_val, df = df_diff, lrt = lrt_stat, model = reduced,
-         reason = NULL)
+         reason = NULL, flags = unique(flags))
   }
 
   # ---- Main loop ---------------------------------------------------------------
@@ -257,6 +278,7 @@ stepwise_reduce <- function(
   dropped    <- character(0L)
   step_rows  <- list()
   untested   <- list()
+  flagged    <- list()
   converged  <- FALSE
 
   if (verbose) {
@@ -301,6 +323,15 @@ stepwise_reduce <- function(
                     iter, names(p_vals)[failed], reasons), sep = "")
     }
     p_vals[failed] <- 0
+
+    # Comparisons that were used despite separation / infinite coefficients.
+    for (trm in names(tests)) {
+      fl <- tests[[trm]]$flags
+      if (length(fl) > 0L)
+        flagged[[length(flagged) + 1L]] <- data.frame(
+          step = iter, term = trm, warning = fl, stringsAsFactors = FALSE
+        )
+    }
 
     droppable <- p_vals[p_vals >= alpha]
 
@@ -384,6 +415,22 @@ stepwise_reduce <- function(
     data.frame(step = integer(0), term = character(0),
                reason = character(0), stringsAsFactors = FALSE)
   }
+  test_warnings <- if (length(flagged) > 0L) {
+    out <- do.call(rbind, flagged)
+    rownames(out) <- NULL
+    out
+  } else {
+    data.frame(step = integer(0), term = character(0),
+               warning = character(0), stringsAsFactors = FALSE)
+  }
+  if (nrow(test_warnings) > 0L)
+    warning(
+      "stepwise_reduce: ", nrow(test_warnings), " comparison(s) used a ",
+      "reduced model with separation or a possibly infinite coefficient ",
+      "(terms: ", paste(unique(test_warnings$term), collapse = ", "),
+      "); the likelihood-ratio tests were still used. See `test_warnings`.",
+      call. = FALSE
+    )
   if (nrow(untested) > 0L) {
     first <- untested[!duplicated(untested$term), ]
     warning(
@@ -404,7 +451,8 @@ stepwise_reduce <- function(
       alpha          = alpha,
       model_type     = model_type,
       sample_size    = sample_size,
-      untested       = untested
+      untested       = untested,
+      test_warnings  = test_warnings
     ),
     class = "stepwise_reduction"
   )

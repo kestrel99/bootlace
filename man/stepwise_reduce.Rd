@@ -44,6 +44,9 @@ coefficients), \code{AIC}, \code{dAIC}, \code{neg2LL}, \code{d_neg2LL} (LRT stat
 (candidate) model; see \strong{Events per variable and variable selection}.}
 \item{\code{untested}}{Data frame (\code{step}, \code{term}, \code{reason}) of terms whose
 test failed at some step and that were therefore kept.}
+\item{\code{test_warnings}}{Data frame (\code{step}, \code{term}, \code{warning}) of
+comparisons whose reduced refit showed separation or a possibly
+infinite coefficient; their tests were still used.}
 }
 }
 \description{
@@ -83,9 +86,13 @@ Each term is tested with a likelihood-ratio test whose degrees of freedom
 are the change in the number of estimated (non-\code{NA}) coefficients. A term
 that removes no estimated coefficient (for example, one that is aliased)
 carries no information and is dropped with \code{df = 0} and \code{p = 1}. When a
-term's test can't be run (the reduced refit fails or uses different
+term's test can't be run or can't be trusted (the reduced refit fails,
+doesn't converge, raises another unexpected warning, or uses different
 observations), the term is kept, a warning names it and the reason, and it
-is listed in \code{untested}.
+is listed in \code{untested}. Separation or a possibly infinite coefficient in
+the reduced refit doesn't invalidate the likelihood-ratio test, so that
+test is used, but the comparison is listed in \code{test_warnings} and a
+warning is given. Warnings about non-integer binomial weights are ignored.
 
 For Cox models, \code{neg2LL} is -2 times the partial log-likelihood and \code{AIC}
 is \verb{neg2LL + 2k}. For binomial GLMs, \code{neg2LL} is the residual deviance and

@@ -175,7 +175,7 @@ test_that("stepwise_reduction object has all required fields", {
   expect_named(LOG_SR,
                c("final_model","original_model","step_table",
                  "dropped","kept","alpha","model_type","sample_size",
-                 "untested"),
+                 "untested", "test_warnings"),
                ignore.order = TRUE)
 })
 
@@ -478,4 +478,38 @@ test_that("untestable terms are kept, recorded and warned about", {
 
 test_that("summary() flags post-selection inference as exploratory", {
   expect_output(summary(LOG_SR), "not account for the selection")
+})
+
+# ===========================================================================
+# Follow-up review: refit warnings are classified, not discarded
+# ===========================================================================
+
+test_that("non-converged reduced refits make the comparison untested", {
+  set.seed(3)
+  n <- 60
+  d <- data.frame(x1 = c(rnorm(30, -2), rnorm(30, 2)), x2 = rnorm(n),
+                  x3 = rnorm(n))
+  d$y <- as.integer(d$x1 > 0)                     # separated by x1
+  fit <- suppressWarnings(glm(y ~ x1 + x2 + x3, data = d, family = binomial))
+  expect_warning(
+    sr <- quiet_sample_size(stepwise_reduce(fit, verbose = FALSE)),
+    "could not be tested"
+  )
+  expect_setequal(unique(sr$untested$term), c("x2", "x3"))
+  expect_match(sr$untested$reason, "did not converge", all = FALSE)
+})
+
+test_that("separation in a reduced refit is recorded but the test is used", {
+  set.seed(2)
+  n <- 200
+  d <- data.frame(x1 = rnorm(n), x2 = rnorm(n))
+  d$y <- rbinom(n, 1, plogis(12 * d$x1))
+  fit <- suppressWarnings(glm(y ~ x1 + x2, data = d, family = binomial))
+  expect_warning(
+    sr <- quiet_sample_size(stepwise_reduce(fit, verbose = FALSE)),
+    "separation"
+  )
+  expect_true("x2" %in% sr$test_warnings$term)
+  expect_match(sr$test_warnings$warning, "fitted probabilities", all = FALSE)
+  expect_false("x2" %in% sr$untested$term)
 })

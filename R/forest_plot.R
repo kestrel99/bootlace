@@ -191,6 +191,9 @@ fp_data <- function(
     list(p = stats::pchisq(w, df = length(cn), lower.tail = FALSE),
          df = length(cn))
   }
+  # Fitted coefficients of each term, whatever the contrast coding.
+  term_cols <- .fp_term_cols(model)
+
   # exp() of an interaction coefficient is a ratio of ORs / HRs.
   ratio_lbl <- if (is_cox) " (ratio of HRs)" else " (ratio of ORs)"
 
@@ -205,7 +208,7 @@ fp_data <- function(
 
     if (is_interaction) {
       # -- Interaction --------------------------------------------------------
-      int_coefs <- .fp_int_coefs(term, coef_names)
+      int_coefs <- term_cols[[term]]
       if (length(int_coefs) == 0L) next
       vars_i <- strsplit(term, ":", fixed = TRUE)[[1L]]
 
@@ -268,9 +271,11 @@ fp_data <- function(
 
     } else if (is_cat) {
       # -- Categorical ------------------------------------------------------
-      levs   <- levels(factor(col))
+      levs   <- model$xlevels[[term]]
+      if (is.null(levs)) levs <- levels(factor(col))
+      cols_t <- term_cols[[term]]
       # Joint Wald test over all of the factor's contrasts, not just the first
-      wt_hdr <- .wald(paste0(term, levs[-1L]))
+      wt_hdr <- .wald(cols_t)
 
       rows <- c(rows, list(data.frame(
         Predictor    = .lbl(term),
@@ -296,11 +301,14 @@ fp_data <- function(
         group        = grp,
         stringsAsFactors = FALSE
       )))
+      # Each level vs the reference, from the fitted contrast matrix (rows =
+      # levels): for treatment coding this is just the level's coefficient.
+      C_t <- .fp_contrast_matrix(model, term, levs)
       for (i in seq(2L, length(levs))) {
-        cn <- paste0(term, levs[[i]])
-        if (!cn %in% coef_names) next
-        b  <- coefs[[cn]]
-        s  <- sqrt(vcov_mat[[cn, cn]])
+        L  <- C_t[i, ] - C_t[1L, ]
+        b  <- sum(L * coefs[cols_t])
+        if (is.na(b)) next
+        s  <- sqrt(drop(crossprod(L, vcov_mat[cols_t, cols_t, drop = FALSE] %*% L)))
         rows <- c(rows, list(data.frame(
           Predictor    = paste0("  ", levs[[i]]),
           est          = exp(b),
@@ -537,4 +545,30 @@ fp_plot <- function(
 
   forestploter::add_border(fp, part = "header", row = 1L,
                            gp = grid::gpar(lwd = 1))
+}
+
+
+# Coefficient names belonging to each model term, from the fit's own
+# term-to-column map (coxph: `assign`; glm: the model matrix's `assign`
+# attribute), so nothing depends on how contrast columns are named.
+.fp_term_cols <- function(model) {
+  tl <- attr(stats::terms(model), "term.labels")
+  if (inherits(model, "coxph")) {
+    cn  <- names(stats::coef(model))
+    out <- lapply(model$assign, function(i) cn[i])
+    return(out[intersect(tl, names(out))])
+  }
+  mm   <- stats::model.matrix(model)
+  asg  <- attr(mm, "assign")
+  keep <- asg > 0
+  split(colnames(mm)[keep], factor(tl[asg[keep]], levels = tl))
+}
+
+# Contrast matrix of a factor term as fitted, one row per level.
+.fp_contrast_matrix <- function(model, term, levs) {
+  ctr <- model$contrasts[[term]]
+  if (is.null(ctr)) ctr <- "contr.treatment"
+  C <- if (is.character(ctr)) do.call(ctr, list(levs)) else as.matrix(ctr)
+  rownames(C) <- levs
+  C
 }

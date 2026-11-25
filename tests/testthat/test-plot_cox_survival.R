@@ -47,3 +47,18 @@ test_that("objects without per-replicate baselines fall back with a note", {
   p <- plot_cox_survival(bc, data.frame(age = 60, sex = 1))
   expect_match(p$labels$subtitle, "fixed baseline")
 })
+
+test_that("interval bounds are ordered on every scale (follow-up review blocker)", {
+  bc <- lung_boot()
+  nd <- data.frame(age = 60, sex = 1)
+  for (f in c("survival", "event", "cumhaz")) {
+    d <- plot_cox_survival(bc, nd, times = c(180, 365, 730), fun = f)$data
+    expect_true(all(d$ci_lo <= d$surv & d$surv <= d$ci_hi), label = f)
+  }
+  # cumhaz bounds are -log of the survival bounds, in swapped order (up to
+  # quantile() interpolation, which doesn't commute exactly with -log)
+  s <- plot_cox_survival(bc, nd, times = 365)$data
+  h <- plot_cox_survival(bc, nd, times = 365, fun = "cumhaz")$data
+  expect_equal(h$ci_lo, -log(s$ci_hi), tolerance = 1e-4)
+  expect_equal(h$ci_hi, -log(s$ci_lo), tolerance = 1e-4)
+})

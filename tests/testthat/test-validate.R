@@ -71,3 +71,13 @@ test_that("compare_logistic_roc() rejects NA and infinite n_cuts / auc_digits", 
                  "`auc_digits`")
   }
 })
+
+test_that("counts and seeds must be whole numbers within the integer range", {
+  expect_error(.check_count(3e9, "n"), "`n`")
+  expect_identical(.check_count(5, "n"), 5L)
+  expect_error(.check_seed(3e9), "`seed`")
+  expect_error(.check_seed(1.5), "`seed`")
+  expect_error(.check_seed(-3e9), "`seed`")
+  expect_silent(.check_seed(-42))
+  expect_silent(.check_seed(NULL))
+})

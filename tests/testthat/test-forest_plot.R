@@ -673,3 +673,32 @@ test_that("interaction rows are labelled as ratios of ORs or HRs", {
   expect_equal(hdr$pval, joint_wald_p(fit, cn))
   expect_equal(hdr$p_df, length(cn))
 })
+
+# ---- Follow-up review: factor rows under non-treatment contrasts ---------------
+
+test_that("glm factor rows are the same under sum and treatment contrasts", {
+  fit_t <- glm(y ~ score + grp, data = FAC3_DF, family = binomial)
+  fit_s <- glm(y ~ score + grp, data = FAC3_DF, family = binomial,
+               contrasts = list(grp = "contr.sum"))
+  pt <- fp_data(fit_t, FAC3_DF)
+  ps <- fp_data(fit_s, FAC3_DF)
+  expect_equal(ps$pval, pt$pval)
+  expect_equal(ps$est,  pt$est)
+  expect_equal(ps$lci,  pt$lci)
+  expect_equal(ps$Predictor, pt$Predictor)
+})
+
+test_that("Cox factor rows are the same under sum and treatment contrasts", {
+  d <- FAC3_DF
+  set.seed(9)
+  d$time   <- rexp(nrow(d))
+  d$status <- rbinom(nrow(d), 1, 0.7)
+  fit_t <- coxph(Surv(time, status) ~ score + grp, data = d)
+  op <- options(contrasts = c("contr.sum", "contr.poly"))
+  fit_s <- coxph(Surv(time, status) ~ score + grp, data = d)
+  options(op)
+  pt <- fp_data(fit_t, d)
+  ps <- fp_data(fit_s, d)
+  expect_equal(ps$pval, pt$pval)
+  expect_equal(ps$est,  pt$est)
+})
