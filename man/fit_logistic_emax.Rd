@@ -157,6 +157,20 @@ identified designs, consider a profile likelihood or \code{\link[=bootstrap_emax
 for EC50 rather than the Wald standard error.
 }
 
+\section{Unrealistic EC50}{
+
+A detailed warning of class \code{bootlace_emax_ec50_warning} is given when the
+EC50 estimate (for the reference covariate values) lies outside the range
+the observed exposures can support: above the highest exposure, where the
+plateau is never observed and Emax and EC50 trade off against each other,
+or below a tenth of the lowest non-zero exposure, where the curve is
+effectively a step. The warning explains the consequence and lists
+options. The limits are this package's own rule of thumb.
+
+The identifiability and stopping warnings described under \strong{Convergence
+and standard errors} have class \code{bootlace_emax_identification_warning}.
+}
+
 \section{Sample size checks}{
 
 The model is checked against the number of events it is fitted to. Any

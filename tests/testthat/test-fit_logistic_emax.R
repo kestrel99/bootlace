@@ -75,3 +75,51 @@ test_that("multiple starts don't do worse than the default start", {
   fixed <- fit_logistic_emax(d$y, d$x, start = c(qlogis(0.2), 1, 25))
   expect_gte(auto$loglik, fixed$loglik - 1e-6)
 })
+
+# ---- Unrealistic EC50 and bootstrap replicates ---------------------------------
+
+# Run `expr`, muffling every warning; return the value and the warnings.
+collect_warnings <- function(expr) {
+  ws  <- list()
+  val <- withCallingHandlers(expr, warning = function(w) {
+    ws[[length(ws) + 1L]] <<- w
+    invokeRestart("muffleWarning")
+  })
+  list(value = val, warnings = ws)
+}
+has_class <- function(ws, cls) any(vapply(ws, inherits, logical(1L), cls))
+
+test_that("an EC50 above the highest exposure gives a detailed warning", {
+  d   <- emax_data(n = 400L, seed = 2L, emax = 4, ec50 = 1000)
+  res <- collect_warnings(fit_logistic_emax(d$y, d$x))
+  expect_true(has_class(res$warnings, "bootlace_emax_ec50_warning"))
+  msg <- conditionMessage(Filter(
+    function(w) inherits(w, "bootlace_emax_ec50_warning"), res$warnings
+  )[[1]])
+  expect_match(msg, "above the highest observed exposure")
+  expect_match(msg, "100")
+})
+
+test_that("an EC50 inside the exposure range gives no EC50 warning", {
+  d   <- emax_data()
+  res <- collect_warnings(fit_logistic_emax(d$y, d$x))
+  expect_false(has_class(res$warnings, "bootlace_emax_ec50_warning"))
+})
+
+test_that("bootstrap_emax() keeps replicates that only fail identifiability checks", {
+  set.seed(42)
+  dose <- rep(c(0, 5, 10, 25, 50, 100), length.out = 200)
+  y    <- rbinom(200, 1, plogis(qlogis(0.10) +
+                                  (qlogis(0.75) - qlogis(0.10)) * dose / (10 + dose)))
+  fit  <- fit_logistic_emax(y, dose)
+  res  <- collect_warnings(suppressMessages(
+    bootstrap_emax(fit, n_boot = 120L, seed = 1L)
+  ))
+  # Replicate 25 of this run puts EC50 near 3000: kept, and reported.
+  expect_equal(res$value$n_boot, 120L)
+  expect_true(has_class(res$warnings, "bootlace_emax_ec50_warning"))
+  msg <- conditionMessage(Filter(
+    function(w) inherits(w, "bootlace_emax_ec50_warning"), res$warnings
+  )[[1]])
+  expect_match(msg, "of 120 bootstrap replicates")
+})

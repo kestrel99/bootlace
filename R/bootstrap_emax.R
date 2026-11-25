@@ -10,9 +10,16 @@
 #' warnings, or fail to converge are skipped and counted. A message is emitted
 #' if any are skipped.
 #'
-#' Sample-size warnings from the refits are not treated as failures. The
-#' sample-size check runs once, in [fit_logistic_emax()], and its result is
-#' shown by [print.boot_emax()].
+#' Sample-size, identifiability and EC50-range warnings from the refits are
+#' not treated as failures, so replicates in which EC50 runs to extreme
+#' values are kept: dropping them would make the percentile intervals look
+#' more precise than the data allow. Instead, when any retained replicate has
+#' EC50 outside the range the exposures can support (see **Unrealistic
+#' EC50** in [fit_logistic_emax()]), one detailed warning of class
+#' `bootlace_emax_ec50_warning` reports how many, the bootstrap EC50
+#' distribution, and whether the percentile interval bounds are set by those
+#' replicates. The sample-size check runs once, in [fit_logistic_emax()], and
+#' its result is shown by [print.boot_emax()].
 #'
 #' @param fit A fitted [fit_logistic_emax()] object.
 #' @param n_boot Number of bootstrap replicates. Default `1000L`.
@@ -96,8 +103,15 @@ bootstrap_emax <- function(
           control     = list(maxit = 500)
         ),
         warning = function(w) {
-          # Sample-size warnings describe the data, not a failed refit.
-          if (!inherits(w, "bootlace_sample_size_warning")) warned <<- TRUE
+          # Sample-size, identifiability and EC50-range warnings describe the
+          # data, not a failed refit: keep those replicates (the EC50 range is
+          # summarised after the loop).
+          keep <- inherits(w, c(
+            "bootlace_sample_size_warning",
+            "bootlace_emax_identification_warning",
+            "bootlace_emax_ec50_warning"
+          ))
+          if (!keep) warned <<- TRUE
           invokeRestart("muffleWarning")
         }
       ),
@@ -125,6 +139,8 @@ bootstrap_emax <- function(
     warning(sprintf(
       "Only %d bootstrap replicates succeeded; CIs may be unreliable.", n_success
     ))
+
+  .warn_boot_ec50(exp(boot_theta[, fit$idx$log_ec50]), fit$x, conf_level)
 
   structure(
     list(
@@ -218,4 +234,56 @@ summary.boot_emax <- function(object, ...) {
   ))
   print(tbl)
   invisible(tbl)
+}
+
+
+# Warn, in detail, when bootstrap EC50 estimates fall outside the observed
+# non-zero exposure range, and say whether the percentile interval is
+# affected.
+.warn_boot_ec50 <- function(ec50, x, conf_level) {
+  lim   <- .ec50_support(x)
+  hi    <- lim[["hi"]]
+  lo    <- lim[["lo"]]
+  above <- sum(ec50 > hi)
+  below <- sum(ec50 < lo)
+  n     <- length(ec50)
+  if (n == 0L || above + below == 0L) return(invisible(NULL))
+
+  tail_share <- (1 - conf_level) / 2
+  ci_hit <- c(
+    if (above / n > tail_share) "upper",
+    if (below / n > tail_share) "lower"
+  )
+  q <- stats::quantile(ec50, c(0.5, tail_share, 1 - tail_share), names = FALSE)
+  .emax_warning(paste0(
+    sprintf(
+      "bootstrap_emax(): EC50 lies outside the range the exposures can support (%s, a tenth of the lowest non-zero exposure, to %s, the highest) in %d of %d bootstrap replicates (%.1f%%): %d above and %d below. ",
+      format(lo), format(hi), above + below, n, 100 * (above + below) / n,
+      above, below
+    ),
+    sprintf(
+      "Bootstrap EC50: median %s, %.0f%% percentile interval %s to %s, largest %s. ",
+      format(signif(q[1], 3)), 100 * conf_level, format(signif(q[2], 3)),
+      format(signif(q[3], 3)), format(signif(max(ec50), 3))
+    ),
+    "In those replicates the data don't pin down where the response levels ",
+    "off, so Emax and EC50 trade off against each other and take extreme ",
+    "values together. ",
+    if (length(ci_hit) > 0L) {
+      sprintf(paste0(
+        "This is more than %.1f%% of replicates, so the %s bound(s) of the ",
+        "percentile intervals for EC50 and Emax are set by these unsupported ",
+        "values and shouldn't be reported as estimates. "
+      ), 100 * tail_share, paste(ci_hit, collapse = " and "))
+    } else {
+      sprintf(paste0(
+        "This is no more than %.1f%% of replicates in either direction, so ",
+        "the %.0f%% percentile intervals are not set by these values, but ",
+        "EC50 is only weakly determined. "
+      ), 100 * tail_share, 100 * conf_level)
+    },
+    "Options: a profile-likelihood interval for EC50, fixing Emax or EC50 ",
+    "from prior information, a simpler exposure-response model, or data at ",
+    "more informative exposures."
+  ), "bootlace_emax_ec50_warning")
 }

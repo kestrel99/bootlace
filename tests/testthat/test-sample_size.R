@@ -242,15 +242,19 @@ test_that("fit_logistic_emax() warns and records sample size", {
 test_that("bootstrap_emax() doesn't count sample-size warnings as failed refits", {
   d   <- make_emax()
   fit <- fit_logistic_emax(d$y, d$dose)
-  # Some replicates fail for real (e.g. EC50 running off to infinity), so
-  # compare with the same bootstrap run without the extra warning.
-  plain <- suppressMessages(bootstrap_emax(fit, n_boot = 120L, seed = 1L))
+  # Compare with the same bootstrap run without the extra warning. The EC50
+  # range warning is expected here and is tested in test-fit_logistic_emax.R.
+  plain <- suppressMessages(muffle_class(
+    bootstrap_emax(fit, n_boot = 120L, seed = 1L), "bootlace_emax_ec50_warning"
+  ))
   real_fit <- fit_logistic_emax
   local_mocked_bindings(fit_logistic_emax = function(...) {
     .warn_sample_size(list(problems = "test problem"), "fit_logistic_emax")
     real_fit(...)
   })
-  be <- suppressMessages(bootstrap_emax(fit, n_boot = 120L, seed = 1L))
+  be <- suppressMessages(muffle_class(
+    bootstrap_emax(fit, n_boot = 120L, seed = 1L), "bootlace_emax_ec50_warning"
+  ))
   expect_equal(be$n_boot, plain$n_boot)
   expect_gt(be$n_boot, 100L)
   expect_output(print(be), "EPV")

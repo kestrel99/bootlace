@@ -30,3 +30,10 @@ quiet_sample_size <- function(expr) {
     bootlace_sample_size_warning = function(w) invokeRestart("muffleWarning")
   )
 }
+
+# Mute warnings of the given condition class(es) only.
+muffle_class <- function(expr, class) {
+  withCallingHandlers(expr, warning = function(w) {
+    if (inherits(w, class)) invokeRestart("muffleWarning")
+  })
+}

@@ -55,6 +55,18 @@
 #' identified designs, consider a profile likelihood or [bootstrap_emax()]
 #' for EC50 rather than the Wald standard error.
 #'
+#' @section Unrealistic EC50:
+#' A detailed warning of class `bootlace_emax_ec50_warning` is given when the
+#' EC50 estimate (for the reference covariate values) lies outside the range
+#' the observed exposures can support: above the highest exposure, where the
+#' plateau is never observed and Emax and EC50 trade off against each other,
+#' or below a tenth of the lowest non-zero exposure, where the curve is
+#' effectively a step. The warning explains the consequence and lists
+#' options. The limits are this package's own rule of thumb.
+#'
+#' The identifiability and stopping warnings described under **Convergence
+#' and standard errors** have class `bootlace_emax_identification_warning`.
+#'
 #' @param y Numeric binary outcome vector (0 or 1).
 #' @param x Numeric predictor vector (e.g. dose, concentration, time), same
 #'   length as `y`.
@@ -341,17 +353,25 @@ fit_logistic_emax <- function(
   if (opt$convergence != 0) {
     warning("Optimisation did not converge. Code: ", opt$convergence)
   } else if (is.null(H_inv)) {
-    warning(
+    .emax_warning(paste0(
       "The Hessian at the optimum is not positive definite or is nearly ",
       "singular, so some parameters are not identified. Standard errors are ",
       "unavailable and `converged` is FALSE."
-    )
+    ), "bootlace_emax_identification_warning")
   } else if (!converged) {
-    warning(
+    .emax_warning(paste0(
       "The optimiser stopped before reaching the optimum; try a smaller ",
       "`control$reltol`."
-    )
+    ), "bootlace_emax_identification_warning")
   }
+
+  # ---- Is the EC50 estimate supported by the observed exposures? -------------
+  ec50_msg <- .ec50_range_message(ec50_est, x)
+  if (!is.null(ec50_msg))
+    .emax_warning(
+      paste0("fit_logistic_emax(): ", ec50_msg),
+      "bootlace_emax_ec50_warning"
+    )
 
   # ---- Variance-covariance ---------------------------------------------------
   vcov_theta <- if (hessian) H_inv else NULL
@@ -674,4 +694,53 @@ predict.logistic_emax <- function(
     p <- p_new
   }
   list(par = p, H_inv = H_inv, decrement = decrement)
+}
+
+# Raise a warning with an extra condition class, so callers such as
+# bootstrap_emax() can tell these apart from fitting failures.
+.emax_warning <- function(msg, class) {
+  warning(structure(
+    class = c(class, "warning", "condition"),
+    list(message = msg, call = NULL)
+  ))
+}
+
+# Explanation of why an EC50 estimate outside the observed non-zero exposure
+# range is unreliable, or NULL when it lies inside the range.
+.ec50_range_message <- function(ec50, x) {
+  lim <- .ec50_support(x)
+  hi  <- lim[["hi"]]
+  lo  <- lim[["lo"]]
+  if (ec50 > hi) {
+    sprintf(paste0(
+      "the EC50 estimate (%s) is above the highest observed exposure (%s). ",
+      "The data don't show where the response levels off, so Emax and EC50 ",
+      "aren't determined separately: a larger EC50 with a larger Emax fits ",
+      "almost equally well, and their standard errors and confidence ",
+      "intervals are unreliable. Interpret only the fitted curve within the ",
+      "observed exposure range. Options: a profile-likelihood interval for ",
+      "EC50, fixing Emax or EC50 from prior information, a simpler ",
+      "exposure-response model (e.g. log-linear), or data at higher exposures."
+    ), format(signif(ec50, 3)), format(hi))
+  } else if (ec50 < lo) {
+    sprintf(paste0(
+      "the EC50 estimate (%s) is below a tenth of the lowest non-zero ",
+      "exposure (%s). The response is essentially at its maximum already at ",
+      "the lowest exposure, so the curve is close to a step and EC50 is set ",
+      "by the shape the model assumes rather than by the data; its standard ",
+      "error and confidence interval are unreliable. Options: a ",
+      "profile-likelihood interval for EC50, fixing EC50 from prior ",
+      "information, or data at lower exposures."
+    ), format(signif(ec50, 3)), format(10 * lo))
+  }
+}
+
+# Range of EC50 values the observed exposures can support: from a tenth of
+# the lowest non-zero exposure (below that the curve is effectively a step)
+# to the highest exposure (above that the plateau is never observed and
+# Emax and EC50 trade off).
+.EC50_LOW_FRACTION <- 0.1
+.ec50_support <- function(x) {
+  x_pos <- x[x > 0]
+  c(lo = .EC50_LOW_FRACTION * min(x_pos), hi = max(x_pos))
 }
