@@ -437,3 +437,44 @@ test_that("zero retained bootstrap draws: plot and summary say unavailable", {
   expect_false(any(grepl("percentile intervals shown", out)))
   expect_true(all(is.na(tb[, 2:5])))
 })
+
+# ---- Follow-up review round 5 --------------------------------------------------
+
+test_that("limiting models match the corresponding GLMs", {
+  set.seed(1)
+  n <- 600
+  x <- rep(c(1, 2, 4, 8, 16, 32), length.out = n)
+  z <- rbinom(n, 1, 0.5)
+  y <- rbinom(n, 1, plogis(-1 + 0.5 * z + 3 / x))
+  none <- matrix(numeric(0), n, 0L)
+  zc   <- cbind(z = z)
+  # Reference: deviance / 2 of the logistic GLM with these columns.
+  g <- function(...) glm.fit(cbind(1, ...), y, family = binomial())$deviance / 2
+  # No covariates.
+  expect_equal(.emax_limit_nll(x, y, none, none, none, -1), g(1 / x))
+  expect_equal(.emax_limit_nll(x, y, none, none, none, +1), g(x))
+  # Emax covariate: z enters linearly in the EC50 -> 0 limit, and z / x too
+  # when z is also a linear covariate.
+  expect_equal(.emax_limit_nll(x, y, none, zc, none, -1), g(z, 1 / x))
+  expect_equal(.emax_limit_nll(x, y, zc, zc, none, -1), g(z, 1 / x, z / x))
+  expect_equal(.emax_limit_nll(x, y, none, zc, none, +1), g(x, z * x))
+  # Zero exposures: EC50 -> 0 tends to a step at x > 0.
+  x0 <- replace(x, seq(1, n, by = 7), 0)
+  expect_equal(.emax_limit_nll(x0, y, none, none, none, -1), g(as.numeric(x0 > 0)))
+  # EC50 covariate: at least as good as the model with no EC50 effect.
+  expect_lte(.emax_limit_nll(x, y, none, none, zc, -1), g(1 / x) + 1e-8)
+})
+
+test_that("EC50 profile with an EC50 covariate: no false lower bound", {
+  # The EC50 -> 0 limit fits better than the converged fit, so the lower
+  # bound is 0; without the general limit check it was about 7.7e-4.
+  set.seed(1)
+  n <- 600
+  x <- rep(c(1, 2, 4, 8, 16, 32), length.out = n)
+  z <- rbinom(n, 1, 0.5)
+  y <- rbinom(n, 1, plogis(-1 + 0.5 * z + 3 / x))
+  fit <- suppressWarnings(fit_logistic_emax(y, x, ec50_covs = cbind(z = z)))
+  ci  <- suppressWarnings(confint(fit, parm = "ec50"))
+  expect_equal(ci[1, 1], 0)
+  expect_true(is.finite(ci[1, 2]))
+})

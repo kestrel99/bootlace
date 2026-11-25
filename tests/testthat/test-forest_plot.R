@@ -752,3 +752,17 @@ test_that("no-intercept models use R's indicator coding for the first factor", {
                exp(lp(f2, "A", "v") - lp(f2, "A", "u")))
   expect_false(any(p2[["P-value"]] == "not estimable"))
 })
+
+test_that("a leading logical predictor takes the no-intercept indicator coding", {
+  # model.matrix() gives zFALSE and zTRUE, so a keeps its contrasts.
+  set.seed(3)
+  d <- data.frame(a = factor(sample(c("A", "B", "C"), 300, TRUE)),
+                  z = runif(300) > 0.5)
+  d$y <- rbinom(300, 1, 0.4)
+  fit <- glm(y ~ 0 + z + a, data = d, family = binomial)
+  expect_true(all(c("zFALSE", "zTRUE", "aB") %in% names(coef(fit))))
+  pd <- fp_data(fit, d)
+  lp <- function(a) unname(predict(fit, data.frame(a = a, z = TRUE)))
+  expect_equal(pd$est[pd$Predictor == "  B"], exp(lp("B") - lp("A")))
+  expect_false(any(pd[["P-value"]] == "not estimable"))
+})

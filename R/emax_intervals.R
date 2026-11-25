@@ -79,10 +79,10 @@
 #' parameter in that direction.
 #'
 #' For EC50 in a model without EC50 covariates the profile is exact: at a
-#' fixed EC50 the model is a logistic GLM in the other parameters, and its
-#' bounds are also checked against the limiting models (EC50 -> 0 and
-#' EC50 -> Inf): if a limit is within the cut-off, that bound is 0 or Inf
-#' with a warning. Other
+#' fixed EC50 the model is a logistic GLM in the other parameters. For every
+#' model, the EC50 bounds are also checked against the limiting models
+#' (EC50 -> 0 and EC50 -> Inf, with any covariate effects free): if a limit is
+#' within the cut-off, that bound is 0 or Inf with a warning. Other
 #' profiles optimise the other parameters from two starting points and keep
 #' the better fit. Before a bound is located, both ends of the bracket are
 #' recomputed and checked to straddle the cut-off. Redundant (aliased)
@@ -182,11 +182,12 @@ confint.logistic_emax <- function(object, parm, level = 0.95,
       )
       # The confidence set includes EC50 values arbitrarily close to 0 (or
       # Inf) whenever the limiting model is inside the cut-off, whatever the
-      # walk found on the way.
-      if (!is.null(prof_fn)) {
+      # walk found on the way (with or without covariates).
+      if (j == object$idx$log_ec50) {
         for (side in 1:2) {
-          lim <- prof_fn(c(-Inf, Inf)[side], list())
-          if (!is.null(lim) && lim$value < target) out[k, side] <- c(-Inf, Inf)[side]
+          lim <- .emax_limit_nll(object$x, object$y, object$Z_lin,
+                                 object$Z_emax, object$Z_ec50, c(-1, 1)[side])
+          if (!is.null(lim) && lim < target) out[k, side] <- c(-Inf, Inf)[side]
         }
       }
       for (side in which(is.na(out[k, ])))
@@ -349,12 +350,71 @@ confint.logistic_emax <- function(object, parm, level = 0.95,
   }
 }
 
+# Negative log-likelihood of the limiting model as the reference EC50 goes to
+# 0 (`dir` = -1) or Inf (`dir` = +1), with the other parameters free:
+# - EC50 -> Inf: x / (EC50_i + x) ~ x / EC50_i, so
+#   eta = e0 + Z_lin b + (b0 + Z_emax g) exp(-Z_ec50 d) x;
+# - EC50 -> 0, with zero exposures: h -> 1(x > 0), so
+#   eta = e0 + Z_lin b + (b0 + Z_emax g) 1(x > 0);
+# - EC50 -> 0, no zero exposure: h = 1 - EC50_i / (EC50_i + x), so
+#   eta = a + Z_lin b + Z_emax g - (c + Z_emax[, S] e) exp(Z_ec50 d) / x,
+#   where S are the Emax covariates in span(1, Z_lin) (only their effects can
+#   grow without bound, offset by the linear terms).
+# For fixed d each is a logistic GLM; d (the EC50 covariate effects) is
+# optimised from 0. Any value found is attained in the limit, so a value
+# inside a cut-off shows the confidence set reaches that boundary. NULL if
+# the fit fails.
+.emax_limit_nll <- function(x, y, Z_lin, Z_emax, Z_ec50, dir) {
+  one <- matrix(1, length(x), 1L)
+  if (dir > 0) {
+    X0 <- cbind(one, Z_lin)
+    W  <- cbind(one, Z_emax)
+    s  <- x / max(x)
+    sg <- -1
+  } else if (any(x == 0)) {
+    pos <- as.numeric(x > 0)
+    return(.emax_glm_nll(cbind(one, Z_lin, pos, Z_emax * pos), y))
+  } else {
+    base   <- cbind(one, Z_lin)
+    in_sp  <- vapply(seq_len(ncol(Z_emax)), function(k) {
+      r <- stats::lm.fit(base, Z_emax[, k])$residuals
+      max(abs(r)) <= 1e-8 * max(1, abs(Z_emax[, k]))
+    }, logical(1L))
+    X0 <- cbind(base, Z_emax)
+    W  <- cbind(one, Z_emax[, in_sp, drop = FALSE])
+    s  <- min(x) / x
+    sg <- 1
+  }
+  dev_at <- function(d) {
+    m <- if (ncol(Z_ec50) > 0L) exp(sg * drop(Z_ec50 %*% d)) else 1
+    v <- .emax_glm_nll(cbind(X0, W * (s * m)), y)
+    if (is.null(v)) Inf else v
+  }
+  if (ncol(Z_ec50) == 0L) {
+    v <- dev_at(numeric(0))
+    return(if (is.finite(v)) v else NULL)
+  }
+  o <- tryCatch(stats::optim(rep(0, ncol(Z_ec50)), dev_at, method = "BFGS"),
+                error = function(e) NULL)
+  v <- min(dev_at(rep(0, ncol(Z_ec50))), if (is.null(o)) Inf else o$value)
+  if (is.finite(v)) v else NULL
+}
+
+# deviance / 2 of a logistic GLM (the negative log-likelihood for 0/1
+# outcomes); NULL if the fit fails.
+.emax_glm_nll <- function(X, y) {
+  f <- tryCatch(
+    suppressWarnings(stats::glm.fit(X, y, family = stats::binomial())),
+    error = function(e) NULL
+  )
+  if (is.null(f) || !is.finite(f$deviance)) NULL else f$deviance / 2
+}
+
 # Scan the profile of log EC50 to classify a fit at `th` that stopped short
 # of the optimum. The grid runs from 1e-4 x the lowest to 1e4 x the highest
 # non-zero exposure; when its best point is at an edge, the scan continues
 # outwards at the same spacing to 1e10 x, and the limiting model (EC50 -> 0
-# or Inf; exact when EC50 has no covariates, else the far end of the scan)
-# is computed. With `tol` = 1e-6 on the negative log-likelihood:
+# or Inf, .emax_limit_nll(); else the far end of the scan) is computed. With `tol` = 1e-6 on the negative log-likelihood:
 # - "finite": a finite EC50 (not the far end of the scan) beats `th` by more
 #   than `tol`; `start` is the full parameter vector there, to restart the
 #   optimiser from;
@@ -423,8 +483,8 @@ confint.logistic_emax <- function(object, parm, level = 0.95,
   far     <- length(sc$v)
   best    <- which.min(sc$vals)
   if (best != far && sc$vals[best] < f_th - tol) return(finite_start(sc, best))
-  lim   <- if (exact) prof(dir * Inf, list()) else NULL
-  f_lim <- if (is.null(lim)) sc$vals[far] else lim$value
+  f_lim <- .emax_limit_nll(x, y, Z_lin, Z_emax, Z_ec50, dir)
+  if (is.null(f_lim)) f_lim <- sc$vals[far]
   if (best == far && f_lim < f_th - tol)
     return(list(type = "diverging", dir = dir, start = NULL))
   list(type = "flat", dir = dir, start = NULL)
