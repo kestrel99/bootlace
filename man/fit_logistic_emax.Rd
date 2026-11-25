@@ -22,16 +22,19 @@ fit_logistic_emax(
 \item{x}{Numeric predictor vector (e.g. dose, concentration, time), same
 length as \code{y}.}
 
-\item{linear_covs}{Optional numeric matrix of covariates that enter the
-linear predictor additively (\eqn{\mathbf{z}_{lin}}). \code{NULL} omits.}
+\item{linear_covs}{Optional covariates that enter the linear predictor
+additively (\eqn{\mathbf{z}_{lin}}).  Accepts a numeric matrix, a factor,
+a character vector, or a data frame; see \strong{Covariate matrices}. \code{NULL}
+omits.}
 
-\item{emax_covs}{Optional numeric matrix of covariates that modify the Emax
-parameter additively (\eqn{\mathbf{z}_{emax}}). \code{NULL} omits.}
-
-\item{ec50_covs}{Optional numeric matrix of covariates that modify
-\eqn{\log(EC_{50})} additively (\eqn{\mathbf{z}_{ec50}}); a coefficient
-of \eqn{\delta} multiplies EC50 by \eqn{e^\delta} per unit increase.
+\item{emax_covs}{Optional covariates that modify the Emax parameter
+additively (\eqn{\mathbf{z}_{emax}}).  Same formats as \code{linear_covs}.
 \code{NULL} omits.}
+
+\item{ec50_covs}{Optional covariates that modify \eqn{\log(EC_{50})}
+additively (\eqn{\mathbf{z}_{ec50}}); a coefficient of \eqn{\delta}
+multiplies EC50 by \eqn{e^\delta} per unit change.  Same formats as
+\code{linear_covs}.  \code{NULL} omits.}
 
 \item{start}{Starting values. One of:
 \itemize{
@@ -78,6 +81,10 @@ as \code{vcov_theta}).}
 (0-column matrices when the corresponding argument was \code{NULL}).}
 \item{\code{idx}}{Named list of integer indices into \code{theta_hat} for each
 parameter group, used internally by \code{\link[=predict.logistic_emax]{predict.logistic_emax()}}.}
+\item{\code{mm_info_lin}, \code{mm_info_emax}, \code{mm_info_ec50}}{List (or \code{NULL})
+of model-matrix metadata (terms, xlevels, contrasts) present when
+categorical covariates were supplied; consumed by
+\code{\link[=predict.logistic_emax]{predict.logistic_emax()}} to re-expand new data consistently.}
 \item{\code{call}}{The matched function call.}
 }
 }
@@ -102,10 +109,17 @@ three-parameter logistic Emax formula.
 }
 \section{Covariate matrices}{
 
-\code{linear_covs}, \code{emax_covs}, and \code{ec50_covs} must be numeric matrices (or
-objects coercible via \code{\link[=as.matrix]{as.matrix()}}) with \code{length(y)} rows.  Expand factors
-in advance with \code{\link[=model.matrix]{model.matrix()}}.  Column names label the coefficients;
-unnamed columns receive labels \code{"V1"}, \code{"V2"}, etc.
+\code{linear_covs}, \code{emax_covs}, and \code{ec50_covs} accept numeric matrices,
+factors, character vectors, or data frames (possibly mixing numeric and
+categorical columns).  Categorical variables are automatically expanded via
+\code{\link[=model.matrix]{model.matrix()}} using treatment contrasts: for a factor with \eqn{k}
+levels the reference level is absorbed by the base parameter (\eqn{E_0},
+\eqn{E_{max}}, or \eqn{\log EC_{50}}) and \eqn{k-1} contrast columns are
+added.  All inputs must have \code{length(y)} rows.  Column names label the
+coefficients; unnamed columns receive labels \code{"V1"}, \code{"V2"}, etc.
+When predicting with categorical covariates, pass new data in the same form
+(factor or data frame); \code{\link[=predict.logistic_emax]{predict.logistic_emax()}} re-applies the training
+contrasts and reference levels automatically.
 }
 
 \examples{
@@ -124,10 +138,15 @@ wt  <- rnorm(n, 70, 10)
 fit2 <- fit_logistic_emax(y, dose, linear_covs = cbind(weight = wt))
 print(fit2)
 
-# Covariate modifying Emax
+# Covariate modifying Emax (binary group as numeric)
 grp <- rbinom(n, 1, 0.5)
 fit3 <- fit_logistic_emax(y, dose, emax_covs = cbind(group = grp))
 print(fit3)
+
+# Categorical covariate: factor passed directly (no pre-expansion needed)
+trt <- factor(sample(c("placebo", "low", "high"), n, replace = TRUE))
+fit4 <- fit_logistic_emax(y, dose, linear_covs = data.frame(treatment = trt))
+print(fit4)
 
 }
 \seealso{

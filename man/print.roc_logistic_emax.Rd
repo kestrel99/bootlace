@@ -7,7 +7,7 @@
 \method{print}{roc_logistic_emax}(x, ...)
 }
 \arguments{
-\item{x}{A \code{roc_logistic_emax} object.}
+\item{x}{A \code{roc_logistic_emax} object returned by \code{\link[=roc_logistic_emax]{roc_logistic_emax()}}.}
 
 \item{...}{Currently unused; included for S3 compatibility.}
 }
@@ -15,7 +15,7 @@
 \code{x}, invisibly.
 }
 \description{
-Prints the AUC and optimal threshold, then renders the ROC plot.
+Prints AUC and optimal threshold for each model, then renders the ROC plot.
 }
 \seealso{
 \code{\link[=roc_logistic_emax]{roc_logistic_emax()}}

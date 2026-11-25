@@ -48,3 +48,6 @@ po/*~
 # RStudio Connect folder
 rsconnect/
 .positai
+
+# Default graphics device output from tests and scripts
+Rplots.pdf

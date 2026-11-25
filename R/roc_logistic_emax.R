@@ -182,7 +182,7 @@ roc_logistic_emax <- function(
     if (ci) {
       cival <- hm_ci(auc, sum(y_obs == 1), sum(y_obs == 0))
       legend_labels[i] <- sprintf(
-        "%s: AUC = %.3f (%.3f–%.3f)",
+        "%s: AUC = %.3f (%.3f\u2013%.3f)",
         labels[i], auc, cival["lo"], cival["hi"]
       )
     } else {

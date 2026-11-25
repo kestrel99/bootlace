@@ -2,40 +2,50 @@
 % Please edit documentation in R/roc_logistic_emax.R
 \name{roc_logistic_emax}
 \alias{roc_logistic_emax}
-\title{ROC curve for a logistic Emax model}
+\title{ROC curve(s) for one or more logistic Emax models}
 \usage{
 roc_logistic_emax(
   object,
+  labels = NULL,
   thresholds = NULL,
   ci = TRUE,
   ref_line = TRUE,
-  color = "steelblue",
-  fill = "steelblue",
+  fill = NULL,
   alpha = 0.2,
+  colors = NULL,
+  linewidth = 1.1,
   title = "ROC Curve - Logistic Emax Model",
   ...
 )
 }
 \arguments{
-\item{object}{A \code{logistic_emax} object returned by \code{\link[=fit_logistic_emax]{fit_logistic_emax()}}.}
+\item{object}{A \code{logistic_emax} object, \strong{or} a named list of
+\code{logistic_emax} objects to compare.}
+
+\item{labels}{Optional character vector of display labels, one per model.
+Defaults to \code{names(object)}; unnamed models are labelled \code{"Model 1"},
+\code{"Model 2"}, etc.}
 
 \item{thresholds}{Numeric vector of classification thresholds. When \code{NULL}
 (default), 501 evenly spaced values from 1 to 0 are used.}
 
 \item{ci}{Logical; if \code{TRUE} (default) a 95\% Hanley-McNeil confidence
-interval is appended to the AUC subtitle.}
+interval is appended to each AUC summary.}
 
 \item{ref_line}{Logical; if \code{TRUE} (default) a dashed diagonal chance line
 is drawn.}
 
-\item{color}{Line colour. Default \code{"steelblue"}.}
+\item{fill}{Logical or \code{NULL}.  When \code{NULL} (default), area shading is
+applied for a single model and suppressed for multiple models.}
 
-\item{fill}{Fill colour for the AUC area. Default \code{"steelblue"}.}
+\item{alpha}{Opacity of the AUC shading. Default \code{0.2}.}
 
-\item{alpha}{Opacity of the AUC ribbon. Default \code{0.2}.}
+\item{colors}{Optional character vector of line colours, one per model.
+Defaults to the ggplot2 discrete colour scale.}
 
-\item{title}{Character string for the plot title. Default
-\code{"ROC Curve - Logistic Emax Model"}.}
+\item{linewidth}{Line width. Default \code{1.1}.}
+
+\item{title}{Plot title. Default \code{"ROC Curve - Logistic Emax Model"}.}
 
 \item{...}{Currently unused; included for S3 compatibility.}
 }
@@ -43,22 +53,27 @@ is drawn.}
 An S3 object of class \code{"roc_logistic_emax"}, a named list with:
 \describe{
 \item{\code{plot}}{A \code{ggplot} object.}
-\item{\code{roc_df}}{Data frame with columns \code{threshold}, \code{sensitivity},
-\code{specificity}, \code{fpr}, and \code{youden}.}
-\item{\code{auc}}{Scalar AUC.}
-\item{\code{best_threshold}}{Single-row data frame for the Youden-optimal
-threshold.}
+\item{\code{roc_list}}{Named list of ROC data frames (one per model), each
+with columns \code{threshold}, \code{sensitivity}, \code{specificity}, \code{fpr}, and
+\code{youden}.}
+\item{\code{roc_df}}{Alias for \code{roc_list[[1]]}; retained for single-model
+backward compatibility.}
+\item{\code{auc}}{Named numeric vector of AUC values.}
+\item{\code{best_threshold}}{Named list of single-row data frames for the
+Youden-optimal threshold of each model.}
 }
 }
 \description{
-Computes sensitivity and specificity across a threshold grid, plots the ROC
-curve with an optional shaded AUC area, and marks the Youden-optimal
-threshold. Returns an object of class \code{"roc_logistic_emax"} that holds the
-plot, the ROC data frame, the AUC, and the best-threshold row.
+Computes ROC curves for one or more \code{logistic_emax} objects, overlays them
+on a single panel, and returns ROC data, AUC values, and the ggplot object.
+AUC is computed via the trapezoidal rule; confidence intervals use the
+Hanley-McNeil approximation.
 }
 \details{
-AUC is computed via the trapezoidal rule. The confidence interval (when
-\code{ci = TRUE}) uses the Hanley-McNeil approximation.
+For a single model the plot matches the original behaviour: a shaded AUC
+area, a subtitle with core parameters (E0, Emax, EC50) and AUC, and a
+labelled Youden-optimal threshold point.  For multiple models the curves are
+superimposed with a legend entry per model showing its AUC.
 }
 \examples{
 set.seed(42)
@@ -68,10 +83,18 @@ eta  <- qlogis(0.10) + (qlogis(0.75) - qlogis(0.10)) * dose / (10 + dose)
 y    <- rbinom(n, 1, plogis(eta))
 fit  <- fit_logistic_emax(y, dose)
 
+# Single model
 roc <- roc_logistic_emax(fit)
 print(roc)
 
+# Two models superimposed
+wt   <- rnorm(n, 70, 10)
+fit2 <- fit_logistic_emax(y, dose, linear_covs = cbind(weight = wt))
+roc2 <- roc_logistic_emax(list(Base = fit, WithWeight = fit2))
+print(roc2)
+
 }
 \seealso{
-\code{\link[=fit_logistic_emax]{fit_logistic_emax()}}, \code{\link[=print.roc_logistic_emax]{print.roc_logistic_emax()}}
+\code{\link[=fit_logistic_emax]{fit_logistic_emax()}}, \code{\link[=print.roc_logistic_emax]{print.roc_logistic_emax()}},
+\code{\link[=roc_logistic]{roc_logistic()}}
 }
