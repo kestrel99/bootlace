@@ -22,7 +22,7 @@ An S3 object of class \code{"boot_cox"}, a named list with:
 \item{\code{fit}}{The original \code{coxph} object.}
 \item{\code{boot_coefs}}{Numeric matrix of bootstrapped log hazard-ratio
 estimates (\code{n_success} x \code{p}), after dropping incomplete rows.}
-\item{\code{data}}{The original data frame recovered from the fit call.}
+\item{\code{data}}{The rows of the original data frame that the fit used.}
 \item{\code{formula}}{The model formula.}
 \item{\code{conf_level}}{The requested confidence level.}
 \item{\code{n_boot}}{Number of successful bootstrap replicates retained.}
@@ -37,11 +37,20 @@ original fit. The result can be inspected via \code{\link[=print.boot_cox]{print
 \code{\link[=summary.boot_cox]{summary.boot_cox()}}.
 }
 \details{
-The function recovers the original data from \code{fit$call$data} so that the
-full (untransformed) data frame is available for row resampling. If the call
-environment cannot be evaluated it falls back to \code{model.frame(fit)} with a
-warning. The \code{ties} method of the original fit is preserved in every
-bootstrap refit.
+Each replicate resamples the rows the original fit used and refits the
+model from its own design: model matrix, response, case weights, offset,
+strata and \code{ties} method. Rows excluded by \verb{subset =} or by missing values
+are never resampled.
+
+When the fit carries a subject or cluster identifier (\code{coxph(..., id =)},
+a \verb{cluster =} argument, or a \code{cluster()} term), whole subjects are
+resampled so that the rows of one subject stay together. Counting-process
+(\code{Surv(start, stop, event)}) fits without an identifier are rejected,
+because resampling their rows independently would break up subjects.
+
+The returned \code{data} holds the rows of the original data (from
+\code{fit$call$data}) that the fit used. If the call environment cannot be
+evaluated it falls back to \code{model.frame(fit)} with a warning.
 
 Replicates that error or produce warnings during refitting (e.g. Firth
 correction triggers, collinearity warnings) are skipped and counted. If any

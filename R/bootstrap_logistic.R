@@ -8,12 +8,18 @@
 #' [summary.boot_logistic()].
 #'
 #' @details
-#' The function recovers the original (untransformed) data from `fit$call$data`
-#' so that `model.matrix()` can apply any inline formula transformations
-#' (e.g. `log(age)`) itself during bootstrap refitting. If the call environment
-#' cannot be evaluated --for example when the fit was constructed inside another
-#' function --it falls back to `model.frame(fit)` with a warning; in that case
-#' formulae containing inline transformations may not plot correctly.
+#' Each replicate resamples the rows the original fit used and refits the
+#' model from its own design: model matrix, response, prior weights and
+#' offset. Rows excluded by `subset =` or by missing values are never
+#' resampled, and case weights and offsets are kept in every refit.
+#'
+#' For plotting, the function also recovers the untransformed rows of the
+#' original data (from `fit$call$data`, restricted to the rows the fit used),
+#' so that inline formula transformations (e.g. `log(age)`) can be applied to
+#' prediction grids. If the call environment cannot be evaluated --for example
+#' when the fit was constructed inside another function --it falls back to
+#' `model.frame(fit)` with a warning; in that case formulae containing inline
+#' transformations may not plot correctly.
 #'
 #' Bootstrap replicates that error or generate warnings during refitting are
 #' skipped and counted. If any replicates are skipped, a message is emitted.
@@ -33,8 +39,8 @@
 #'     \item{`boot_coefs`}{Numeric matrix of bootstrapped coefficients from
 #'       successful refits (`n_success` x `p`), after removing skipped
 #'       replicates and rows with any `NA` coefficient.}
-#'     \item{`data`}{The original (untransformed) data frame recovered from
-#'       the fit call.}
+#'     \item{`data`}{The rows of the original (untransformed) data frame that
+#'       the fit used.}
 #'     \item{`formula`}{The model formula.}
 #'     \item{`conf_level`}{The requested confidence level.}
 #'     \item{`n_boot`}{Number of successful bootstrap replicates retained.}
@@ -77,24 +83,23 @@ bootstrap_logistic <- function(
   sample_size <- .sample_size(fit)
   .warn_sample_size(sample_size, "bootstrap_logistic")
 
-  # ---- Recover original data -------------------------------------------------
-  # Use the untransformed data (not model.frame) so model.matrix() can apply
-  # inline formula transformations (e.g. log(age)) during bootstrap refitting.
+  # ---- Analysis data ---------------------------------------------------------
+  # The untransformed rows the fit used, so the plotting functions can apply
+  # inline formula transformations (e.g. log(age)) to their own grids.
   formula <- formula(fit)
-  fam <- fit$family
-  data <- tryCatch(
-    eval(fit$call$data, envir = environment(formula)),
-    error = function(e) {
-      warning(
-        "bootstrap_logistic: could not recover original data from ",
-        "fit$call$data; falling back to model.frame(fit). ",
-        "Inline formula transformations (e.g. log(x)) may not plot correctly."
-      )
-      model.frame(fit)
-    }
-  )
+  data <- .analysis_data(fit)
+  if (is.null(data)) {
+    warning(
+      "bootstrap_logistic: could not recover original data from ",
+      "fit$call$data; falling back to model.frame(fit). ",
+      "Inline formula transformations (e.g. log(x)) may not plot correctly."
+    )
+    data <- model.frame(fit)
+  }
 
-  n <- nrow(data)
+  # Refits use the fit's own design (model matrix, response, prior weights,
+  # offset), so the analysis rows, weights and offsets can't change.
+  des <- .glm_design(fit)
   coef_names <- names(coef(fit))
 
   # ---- Bootstrap loop --------------------------------------------------------
@@ -108,13 +113,12 @@ bootstrap_logistic <- function(
   n_failed <- 0L
 
   for (i in seq_len(n_boot)) {
-    idx <- sample.int(n, n, replace = TRUE)
-    boot_data <- data[idx, , drop = FALSE]
+    idx <- .resample_rows(des)
 
     warned <- FALSE
-    boot_fit <- tryCatch(
+    b <- tryCatch(
       withCallingHandlers(
-        glm(formula, data = boot_data, family = fam),
+        .refit_glm(des, idx),
         warning = function(w) {
           warned <<- TRUE
           invokeRestart("muffleWarning")
@@ -123,14 +127,13 @@ bootstrap_logistic <- function(
       error = function(e) NULL
     )
 
-    if (is.null(boot_fit) || warned) {
+    if (is.null(b) || warned) {
       n_failed <- n_failed + 1L
       next
     }
 
-    # Name-match guards against dropped factor levels in sparse resamples
-    matched <- intersect(names(coef(boot_fit)), coef_names)
-    boot_coefs[i, matched] <- coef(boot_fit)[matched]
+    # Aliased columns (e.g. a factor level absent from the resample) are NA
+    boot_coefs[i, ] <- b
   }
 
   if (n_failed > 0L) {

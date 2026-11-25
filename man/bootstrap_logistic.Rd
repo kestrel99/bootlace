@@ -24,8 +24,8 @@ An S3 object of class \code{"boot_logistic"}, a named list with elements:
 \item{\code{boot_coefs}}{Numeric matrix of bootstrapped coefficients from
 successful refits (\code{n_success} x \code{p}), after removing skipped
 replicates and rows with any \code{NA} coefficient.}
-\item{\code{data}}{The original (untransformed) data frame recovered from
-the fit call.}
+\item{\code{data}}{The rows of the original (untransformed) data frame that
+the fit used.}
 \item{\code{formula}}{The model formula.}
 \item{\code{conf_level}}{The requested confidence level.}
 \item{\code{n_boot}}{Number of successful bootstrap replicates retained.}
@@ -42,12 +42,18 @@ can also be inspected directly via \code{\link[=print.boot_logistic]{print.boot_
 \code{\link[=summary.boot_logistic]{summary.boot_logistic()}}.
 }
 \details{
-The function recovers the original (untransformed) data from \code{fit$call$data}
-so that \code{model.matrix()} can apply any inline formula transformations
-(e.g. \code{log(age)}) itself during bootstrap refitting. If the call environment
-cannot be evaluated --for example when the fit was constructed inside another
-function --it falls back to \code{model.frame(fit)} with a warning; in that case
-formulae containing inline transformations may not plot correctly.
+Each replicate resamples the rows the original fit used and refits the
+model from its own design: model matrix, response, prior weights and
+offset. Rows excluded by \verb{subset =} or by missing values are never
+resampled, and case weights and offsets are kept in every refit.
+
+For plotting, the function also recovers the untransformed rows of the
+original data (from \code{fit$call$data}, restricted to the rows the fit used),
+so that inline formula transformations (e.g. \code{log(age)}) can be applied to
+prediction grids. If the call environment cannot be evaluated --for example
+when the fit was constructed inside another function --it falls back to
+\code{model.frame(fit)} with a warning; in that case formulae containing inline
+transformations may not plot correctly.
 
 Bootstrap replicates that error or generate warnings during refitting are
 skipped and counted. If any replicates are skipped, a message is emitted.

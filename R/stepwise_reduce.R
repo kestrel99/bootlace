@@ -125,14 +125,21 @@ stepwise_reduce <- function(
   ties_method <- if (is_cox) fit$method else NULL
 
   # ---- Recover training data ---------------------------------------------------
-  fit_data <- tryCatch(
-    eval(fit$call$data, envir = environment(stats::formula(fit))),
-    error = function(e) {
-      message("stepwise_reduce: cannot recover data from fit$call$data; ",
-              "falling back to model.frame(fit).")
-      stats::model.frame(fit)
-    }
-  )
+  # Only the rows the full model used, so dropping a term can't bring back rows
+  # that were excluded because that term's predictor was missing. Weights and
+  # an offset argument are stored as columns so every refit keeps them.
+  mf_full  <- stats::model.frame(fit)
+  fit_data <- .analysis_data(fit)
+  if (is.null(fit_data)) {
+    message("stepwise_reduce: cannot recover data from fit$call$data; ",
+            "falling back to model.frame(fit).")
+    fit_data <- mf_full
+  }
+  w_full <- stats::model.weights(mf_full)
+  fit_data$.bootlace_w <- if (is.null(w_full)) rep(1, nrow(fit_data)) else w_full
+  off_arg <- mf_full[["(offset)"]]
+  fit_data$.bootlace_off <- if (is.null(off_arg)) rep(0, nrow(fit_data)) else off_arg
+  n_full <- NROW(fit$y)
 
   # ---- Sample size: EPV for the candidate (full) model -------------------------
   sample_size <- .sample_size(fit, selection = TRUE, alpha = alpha)
@@ -161,7 +168,7 @@ stepwise_reduce <- function(
   }
 
   # ---- LRT helper: test removing one term from `current` ----------------------
-  # Captures fit_data, is_cox, ties_method from enclosing scope.
+  # Captures fit_data, n_full, is_cox, ties_method from enclosing scope.
   .lrt_one <- function(current, term) {
     new_f <- stats::update.formula(
       stats::formula(current),
@@ -171,7 +178,8 @@ stepwise_reduce <- function(
     reduced <- if (is_cox) {
       tryCatch(
         withCallingHandlers(
-          survival::coxph(new_f, data = fit_data, ties = ties_method),
+          survival::coxph(new_f, data = fit_data, ties = ties_method,
+                          weights = .bootlace_w),
           warning = function(w) invokeRestart("muffleWarning")
         ),
         error = function(e) NULL
@@ -179,12 +187,17 @@ stepwise_reduce <- function(
     } else {
       tryCatch(
         withCallingHandlers(
-          stats::glm(new_f, data = fit_data, family = current$family),
+          stats::glm(new_f, data = fit_data, family = current$family,
+                     weights = .bootlace_w, offset = .bootlace_off),
           warning = function(w) invokeRestart("muffleWarning")
         ),
         error = function(e) NULL
       )
     }
+
+    # An LRT is only valid when both models use the same observations.
+    if (!is.null(reduced) && NROW(reduced$y) != n_full)
+      reduced <- NULL
 
     if (is.null(reduced))
       return(list(p = NA_real_, df = NA_integer_, lrt = NA_real_,
@@ -193,9 +206,15 @@ stepwise_reduce <- function(
     df_diff  <- max(1L,
                     length(stats::coef(current)) -
                     length(stats::coef(reduced)))
-    lrt_stat <- max(0,
-                    -2 * as.numeric(stats::logLik(reduced) -
-                                    stats::logLik(current)))
+    # For a GLM use the deviance difference: it equals -2 * (difference in
+    # log-likelihood) for integer weights, and stays valid for non-integer
+    # case weights, where logLik() of a binomial GLM is not a likelihood.
+    lrt_stat <- if (is_cox) {
+      -2 * as.numeric(stats::logLik(reduced) - stats::logLik(current))
+    } else {
+      stats::deviance(reduced) - stats::deviance(current)
+    }
+    lrt_stat <- max(0, lrt_stat)
     p_val    <- stats::pchisq(lrt_stat, df = df_diff, lower.tail = FALSE)
 
     list(p = p_val, df = df_diff, lrt = lrt_stat, model = reduced)

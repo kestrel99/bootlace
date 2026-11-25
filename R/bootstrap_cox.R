@@ -6,11 +6,20 @@
 #' [summary.boot_cox()].
 #'
 #' @details
-#' The function recovers the original data from `fit$call$data` so that the
-#' full (untransformed) data frame is available for row resampling. If the call
-#' environment cannot be evaluated it falls back to `model.frame(fit)` with a
-#' warning. The `ties` method of the original fit is preserved in every
-#' bootstrap refit.
+#' Each replicate resamples the rows the original fit used and refits the
+#' model from its own design: model matrix, response, case weights, offset,
+#' strata and `ties` method. Rows excluded by `subset =` or by missing values
+#' are never resampled.
+#'
+#' When the fit carries a subject or cluster identifier (`coxph(..., id =)`,
+#' a `cluster =` argument, or a `cluster()` term), whole subjects are
+#' resampled so that the rows of one subject stay together. Counting-process
+#' (`Surv(start, stop, event)`) fits without an identifier are rejected,
+#' because resampling their rows independently would break up subjects.
+#'
+#' The returned `data` holds the rows of the original data (from
+#' `fit$call$data`) that the fit used. If the call environment cannot be
+#' evaluated it falls back to `model.frame(fit)` with a warning.
 #'
 #' Replicates that error or produce warnings during refitting (e.g. Firth
 #' correction triggers, collinearity warnings) are skipped and counted. If any
@@ -28,7 +37,7 @@
 #'     \item{`fit`}{The original `coxph` object.}
 #'     \item{`boot_coefs`}{Numeric matrix of bootstrapped log hazard-ratio
 #'       estimates (`n_success` x `p`), after dropping incomplete rows.}
-#'     \item{`data`}{The original data frame recovered from the fit call.}
+#'     \item{`data`}{The rows of the original data frame that the fit used.}
 #'     \item{`formula`}{The model formula.}
 #'     \item{`conf_level`}{The requested confidence level.}
 #'     \item{`n_boot`}{Number of successful bootstrap replicates retained.}
@@ -67,22 +76,29 @@ bootstrap_cox <- function(
   sample_size <- .sample_size(fit)
   .warn_sample_size(sample_size, "bootstrap_cox")
 
-  formula    <- formula(fit)
-  ties_method <- fit$method   # "efron", "breslow", or "exact"
+  formula <- formula(fit)
 
-  # ---- Recover original data -------------------------------------------------
-  data <- tryCatch(
-    eval(fit$call$data, envir = environment(formula)),
-    error = function(e) {
-      warning(
-        "bootstrap_cox: could not recover original data from fit$call$data; ",
-        "falling back to model.frame(fit)."
-      )
-      stats::model.frame(fit)
-    }
-  )
+  # Refits use the fit's own design (model matrix, response, weights, offset,
+  # strata, ties method), resampling whole subjects when the fit has an id.
+  des <- .cox_design(fit)
+  if (identical(des$type, "counting") && is.null(des$cluster))
+    stop(
+      "`fit` uses (start, stop] data without a subject identifier. Refit ",
+      "with coxph(..., id = <subject column>) so that bootstrap_cox() can ",
+      "resample whole subjects.",
+      call. = FALSE
+    )
 
-  n          <- nrow(data)
+  # ---- Analysis data ---------------------------------------------------------
+  data <- .analysis_data(fit)
+  if (is.null(data)) {
+    warning(
+      "bootstrap_cox: could not recover original data from fit$call$data; ",
+      "falling back to model.frame(fit)."
+    )
+    data <- stats::model.frame(fit)
+  }
+
   coef_names <- names(coef(fit))
 
   # ---- Bootstrap loop --------------------------------------------------------
@@ -96,13 +112,12 @@ bootstrap_cox <- function(
   n_failed <- 0L
 
   for (i in seq_len(n_boot)) {
-    rows      <- sample.int(n, n, replace = TRUE)
-    boot_data <- data[rows, , drop = FALSE]
+    rows <- .resample_rows(des)
 
-    warned   <- FALSE
-    boot_fit <- tryCatch(
+    warned <- FALSE
+    b <- tryCatch(
       withCallingHandlers(
-        survival::coxph(formula, data = boot_data, ties = ties_method),
+        .refit_cox(des, rows),
         warning = function(w) {
           warned <<- TRUE
           invokeRestart("muffleWarning")
@@ -111,14 +126,13 @@ bootstrap_cox <- function(
       error = function(e) NULL
     )
 
-    if (is.null(boot_fit) || warned) {
+    if (is.null(b) || warned) {
       n_failed <- n_failed + 1L
       next
     }
 
-    # Name-match guards against dropped terms in degenerate resamples
-    matched <- intersect(names(coef(boot_fit)), coef_names)
-    boot_coefs[i, matched] <- coef(boot_fit)[matched]
+    # Degenerate columns (e.g. an absent factor level) come back as NA
+    boot_coefs[i, ] <- b
   }
 
   if (n_failed > 0L)
