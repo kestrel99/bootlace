@@ -172,13 +172,15 @@ Hessian that is not positive definite (parameters not identified at the
 optimum) has class \code{bootlace_emax_identification_warning}. When the
 optimiser stops before reaching the optimum, the fit is retried once
 (longer, tighter optimisation and more Newton steps). If it still stops
-short, the fit is checked for a diverging ridge: if moving EC50 tenfold
-along the Emax/EC50 ridge still improves the likelihood, the maximum is at
-the EC50 -> Inf boundary and the warning has class
-\code{bootlace_emax_ridge_warning}; otherwise it is an optimisation failure,
-with class \code{bootlace_emax_stopped_warning}. \code{\link[=bootstrap_emax]{bootstrap_emax()}} keeps
-ridge and non-identified replicates (counting each reason) but drops
-optimisation failures.
+short, the profile likelihood of EC50 is scanned from 1e-4 times the lowest
+to 1e4 times the highest non-zero exposure. If a finite EC50 fits better,
+the optimiser is restarted from there (often rescuing the fit). If the
+best fit is at the top or bottom of the scan, the maximum is at an EC50
+boundary (EC50 -> Inf along the Emax/EC50 ridge, or EC50 -> 0), and the
+warning has class \code{bootlace_emax_ridge_warning}; otherwise it is an
+optimisation failure, with class \code{bootlace_emax_stopped_warning}.
+\code{\link[=bootstrap_emax]{bootstrap_emax()}} keeps boundary and non-identified replicates (counting
+each reason) but drops optimisation failures.
 }
 
 \section{Sample size checks}{

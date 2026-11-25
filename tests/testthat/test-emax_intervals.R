@@ -16,14 +16,14 @@ quiet_emax <- function(expr) suppressMessages(muffle_class(
 
 test_that(".bca_ci() is the percentile interval when bias and acceleration are 0", {
   boot <- seq(-1, 1, length.out = 1000)        # symmetric, none equal to 0
-  expect_equal(.bca_ci(boot, 0, c(-1, 1), 0.9),
+  expect_equal(.bca_ci(boot, 0, c(-1, 0, 1), 0.9),
                unname(quantile(boot, c(0.05, 0.95))), ignore_attr = TRUE)
 })
 
 test_that(".bca_ci() moves the interval towards a biased estimate", {
   set.seed(1)
   boot <- rnorm(4000, mean = 1)                # bootstrap centred above est
-  ci   <- .bca_ci(boot, 0, c(-1, 1), 0.95)
+  ci   <- .bca_ci(boot, 0, c(-1, 0, 1), 0.95)
   expect_true(all(ci < quantile(boot, c(0.025, 0.975))))
 })
 
@@ -199,7 +199,7 @@ test_that("BCa falls back to a labelled percentile interval past the pole", {
   ci   <- .bca_ci(boot, unname(quantile(boot, 0.98)), jack, 0.99999)
   expect_true(ci[1] <= ci[2])
   expect_match(attr(ci, "method"), "percentile")
-  ok <- .bca_ci(boot, 1, c(-1, 1), 0.95)
+  ok <- .bca_ci(boot, 1, c(-1, 0, 1), 0.95)
   expect_identical(attr(ok, "method"), "BCa")
 })
 
@@ -219,9 +219,13 @@ test_that("a refit that still stops short is told apart from a diverging ridge",
   local_mocked_bindings(.polish_optimum = function(f, p, ...) {
     list(par = p, H_inv = diag(length(p)), decrement = 1)
   })
-  local_mocked_bindings(.emax_ridge_diverges = function(...) TRUE)
+  local_mocked_bindings(.emax_boundary_check = function(...) {
+    list(type = "diverging_up", start = NULL)
+  })
   expect_true("bootlace_emax_ridge_warning" %in% classes())
-  local_mocked_bindings(.emax_ridge_diverges = function(...) FALSE)
+  local_mocked_bindings(.emax_boundary_check = function(...) {
+    list(type = "none", start = NULL)
+  })
   expect_true("bootlace_emax_stopped_warning" %in% classes())
 })
 
@@ -268,4 +272,86 @@ test_that("summary() says when BCa was unavailable and percentile is shown", {
   out <- capture.output(tb <- summary(be))
   expect_match(out, "BCa unavailable", all = FALSE)
   expect_equal(attr(tb, "bca_unavailable"), names(fit$coefficients))
+})
+
+# ---- Follow-up review round 3 -------------------------------------------------------
+
+test_that("a redundant covariate doesn't make the EC50 profile unbounded", {
+  set.seed(1)
+  n <- 300
+  x <- rep(c(0, 5, 10, 25, 50, 100), length.out = n)
+  z <- rnorm(n)
+  y <- rbinom(n, 1, plogis(qlogis(0.1) + 3 * x / (10 + x) + 0.3 * z))
+  f1 <- quiet_emax(fit_logistic_emax(y, x, linear_covs = cbind(z = z)))
+  f2 <- quiet_emax(fit_logistic_emax(y, x, linear_covs = cbind(z = z, z2 = 2 * z)))
+  c1 <- suppressWarnings(confint(f1, parm = "ec50"))
+  c2 <- suppressWarnings(confint(f2, parm = "ec50"))
+  expect_true(all(is.finite(c2)))
+  expect_equal(unname(c2), unname(c1), tolerance = 1e-3)
+})
+
+test_that("a failed profile evaluation gives NA, not an infinite bound", {
+  d   <- emax_set()
+  fit <- fit_logistic_emax(d$y, d$x)
+  local_mocked_bindings(.emax_glm_profile_fn = function(...) function(v, starts) NULL)
+  msgs <- character(0)
+  ci <- withCallingHandlers(
+    confint(fit, parm = "ec50"),
+    warning = function(w) {
+      msgs <<- c(msgs, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    }
+  )
+  expect_true(all(is.na(ci)))
+  expect_length(msgs, 2L)
+  expect_match(msgs, "could not be computed")
+  expect_false(any(grepl("Inf", msgs)))
+})
+
+test_that("BCa needs enough usable jackknife fits", {
+  set.seed(1)
+  boot <- rnorm(500)
+  for (jk in list(numeric(0), c(1, NA), c(2, 2, 2))) {
+    ci <- .bca_ci(boot, 0, jk, 0.95)
+    expect_match(attr(ci, "method"), "jackknife")
+    expect_equal(as.numeric(ci), unname(quantile(boot, c(0.025, 0.975))))
+  }
+})
+
+test_that("zero usable jackknife fits: plot works, summary says percentile", {
+  fit <- quiet_sample_size(quiet_emax(fit_logistic_emax(c(0, 1, 0), c(0, 5, 10))))
+  be  <- suppressMessages(suppressWarnings(bootstrap_emax(fit, n_boot = 40L, seed = 1L)))
+  expect_equal(sum(stats::complete.cases(be$jack_theta)), 0L)
+  p <- plot_emax_curve(be, n_grid = 10L)
+  expect_match(p$labels$subtitle, "jackknife")
+  out <- capture.output(tb <- summary(be))
+  expect_match(out, "jackknife", all = FALSE)
+  expect_setequal(attr(tb, "bca_unavailable"), names(fit$coefficients))
+})
+
+test_that("the boundary check finds a finite optimum instead of calling it a ridge", {
+  d   <- emax_set(n = 600L)
+  fit <- fit_logistic_emax(d$y, d$x)
+  nll <- .emax_nll_fn(fit$x, fit$y, fit$Z_lin, fit$Z_emax, fit$Z_ec50, fit$idx)
+  # Start well below the optimum (EC50 = 2.27, optimum near 22.7).
+  th <- fit$theta_hat
+  th[["log_ec50"]] <- log(2.27)
+  chk <- .emax_boundary_check(fit$x, fit$y, fit$Z_lin, fit$Z_emax, fit$Z_ec50,
+                              fit$idx, th, nll)
+  expect_equal(chk$type, "finite")
+  expect_equal(exp(chk$start[["log_ec50"]]), fit$coefficients[["ec50"]],
+               tolerance = 0.25)
+})
+
+test_that("the boundary check recognises a diverging EC50", {
+  # A convex (accelerating) dose-response: a concave Emax curve fits it best
+  # in the EC50 -> Inf limit, so the maximum is at that boundary.
+  set.seed(1)
+  x   <- rep(c(0, 5, 10, 25, 50, 100), length.out = 400)
+  y   <- rbinom(400, 1, plogis(-3 + 0.0004 * x^2))
+  fit <- quiet_emax(fit_logistic_emax(y, x))
+  nll <- .emax_nll_fn(fit$x, fit$y, fit$Z_lin, fit$Z_emax, fit$Z_ec50, fit$idx)
+  chk <- .emax_boundary_check(fit$x, fit$y, fit$Z_lin, fit$Z_emax, fit$Z_ec50,
+                              fit$idx, fit$theta_hat, nll)
+  expect_equal(chk$type, "diverging_up")
 })

@@ -162,10 +162,19 @@ plot_emax_curve <- function(
   if (ci == "bca") {
     # Pointwise BCa, using predictions from the stored jackknife fits.
     jack_ok  <- stats::complete.cases(be$jack_theta)
-    jack_mat <- apply(be$jack_theta[jack_ok, , drop = FALSE], 1L, .pred)
+    # n_grid x (usable jackknife fits); zero columns when there are none, in
+    # which case .bca_ci() falls back to (labelled) percentile intervals.
+    jack_mat <- matrix(numeric(0), nrow = n_grid, ncol = 0L)
+    if (any(jack_ok))
+      jack_mat <- matrix(apply(be$jack_theta[jack_ok, , drop = FALSE], 1L, .pred),
+                         nrow = n_grid)
     ints <- lapply(seq_len(n_grid), function(k) {
       .bca_ci(boot_mat[k, ], prob[k], jack_mat[k, ], be$conf_level)
     })
+    fall_why <- unique(unlist(lapply(ints, function(r) {
+      m <- attr(r, "method")
+      if (identical(m, "BCa")) NULL else sub("^percentile \\(BCa unavailable: (.*)\\)$", "\\1", m)
+    })))
     ci_lo  <- vapply(ints, `[`, numeric(1L), 1L)
     ci_hi  <- vapply(ints, `[`, numeric(1L), 2L)
     n_fall <- sum(vapply(ints, function(r) {
@@ -207,8 +216,12 @@ plot_emax_curve <- function(
     else "",
     cl_pct,
     if (ci != "bca") "percentile" else if (n_fall == 0L) "BCa" else
-      sprintf("BCa (percentile at %d of %d points where BCa is unavailable)",
-              n_fall, n_grid),
+      if (n_fall == n_grid) {
+        sprintf("percentile (BCa unavailable: %s)", paste(fall_why, collapse = "; "))
+      } else {
+        sprintf("BCa (percentile at %d of %d points: %s)",
+                n_fall, n_grid, paste(fall_why, collapse = "; "))
+      },
     be$n_boot
   )
 

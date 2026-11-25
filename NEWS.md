@@ -1,5 +1,11 @@
 # bootlace 0.1.0
 
+* Fixes from the third follow-up scientific review (no issue):
+  * `confint()` for Emax fits: a redundant (aliased) covariate no longer makes the EC50 profile look unbounded, and a profile fit that fails numerically now gives an `NA` bound with a warning instead of an infinite one. The exact EC50 profile also handles the EC50 -> Inf and EC50 -> 0 limits.
+  * BCa intervals need at least 3 usable jackknife fits; otherwise `summary.boot_emax()` and `plot_emax_curve()` show labelled percentile intervals (the plot used to fail, and the summary silently used zero acceleration).
+  * `fit_logistic_emax()` replaces the tenfold ridge check with a scan of the EC50 profile: a better finite EC50 restarts the optimiser, and only a best fit at the edge of the scan is reported as a boundary (`bootlace_emax_ridge_warning`). Previously a finite optimum further along could be mistaken for divergence.
+  * `fp_data()` reads how each factor is coded in each term (contrasts or indicators) from the model terms, so models such as `y ~ a + a:b` are no longer reported as "not estimable".
+
 * Fixes from the second follow-up scientific review (no issue):
   * `confint()` for Emax fits no longer fails when the profile is awkward (it could stop with "f() values at end points not of opposite sign"). The EC50 profile is computed exactly (a logistic GLM at each fixed EC50), other profiles use two starts, and every bracket is verified before root-finding.
   * BCa intervals are no longer reversed when the acceleration adjustment is invalid (e.g. at very high confidence levels): the percentile interval is used instead and labelled as such in `summary.boot_emax()` and `plot_emax_curve()`.

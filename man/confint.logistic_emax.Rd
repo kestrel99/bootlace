@@ -41,7 +41,10 @@ For EC50 in a model without EC50 covariates the profile is exact: at a
 fixed EC50 the model is a logistic GLM in the other parameters. Other
 profiles optimise the other parameters from two starting points and keep
 the better fit. Before a bound is located, both ends of the bracket are
-recomputed and checked to straddle the cut-off.
+recomputed and checked to straddle the cut-off. Redundant (aliased)
+covariate columns don't affect the profile. If a profile fit fails
+numerically, that bound is \code{NA} with a warning, never reported as
+infinite.
 
 Wald intervals are estimate +/- z x standard error from the Hessian. For
 \code{ec50} they are computed on the log scale and back-transformed. They need a

@@ -38,9 +38,10 @@
 #' itself, so these rows are labelled "(ratio of ORs)" or "(ratio of HRs)".
 #'
 #' Every displayed estimate is a linear combination of the fitted
-#' coefficients built from the model's own contrasts, so the table is the
-#' same whatever contrast coding was used (e.g. `contr.treatment` or
-#' `contr.sum`). Factor rows compare each level with the first (reference)
+#' coefficients built from the coding R actually used for each factor in
+#' each term (contrasts, or indicator coding when a lower-order term is
+#' absent, as for `a` in `y ~ a + a:b`), so the table is the same whatever
+#' contrast coding was used (e.g. `contr.treatment` or `contr.sum`). Factor rows compare each level with the first (reference)
 #' level. When a term is part of an interaction, its rows are its effect at
 #' the reference level of each factor it interacts with (and at 0 for an
 #' interacting numeric variable), which is what treatment coding reports.
@@ -500,22 +501,30 @@ fp_plot <- function(
   C     <- stats::setNames(lapply(facs, function(v) .fp_contrast_matrix(model, v, xlev[[v]])),
                            facs)
   levels <- stats::setNames(lapply(terms_, function(t) xlev[[t]]), terms_)
-  # Per term: for each factor in it, the coding matrix (rows = levels) whose
-  # columns match the term's fitted columns.
+  # Per term: for each factor in it, the coding matrix (rows = levels) that R
+  # actually used for that factor in that term. The terms object's "factors"
+  # attribute records it: 1 = contrasts, 2 = indicator (dummy) coding, which
+  # R uses when a lower-order term is absent (e.g. `a` in `y ~ a + a:b`).
+  fa <- attr(stats::terms(model), "factors")
   coding <- stats::setNames(lapply(terms_, function(t) {
     fv <- vars[[t]][vars[[t]] %in% facs]
     if (length(fv) == 0L) return(list())
-    n_cols <- length(term_cols[[t]])
-    fitted <- stats::setNames(lapply(fv, function(v) C[[v]]), fv)
-    if (prod(vapply(fitted, ncol, numeric(1L))) == n_cols) return(fitted)
-    indic <- stats::setNames(lapply(fv, function(v) {
-      k <- length(xlev[[v]])
-      m <- diag(k)
-      dimnames(m) <- list(xlev[[v]], xlev[[v]])
-      m
+    cod <- stats::setNames(lapply(fv, function(v) {
+      if (!is.null(fa) && v %in% rownames(fa) && t %in% colnames(fa) &&
+          fa[v, t] == 2L) {
+        k <- length(xlev[[v]])
+        m <- diag(k)
+        dimnames(m) <- list(xlev[[v]], xlev[[v]])
+        m
+      } else {
+        C[[v]]
+      }
     }), fv)
-    if (prod(vapply(indic, ncol, numeric(1L))) == n_cols) return(indic)
-    NULL
+    # Numeric variables contribute one column each, so the factor codings
+    # must account for all of the term's fitted columns.
+    if (prod(vapply(cod, ncol, numeric(1L))) != length(term_cols[[t]]))
+      return(NULL)
+    cod
   }), terms_)
   list(vars = vars, factors = facs, levels = levels, xlevels = xlev,
        coding = coding, term_cols = term_cols, terms = terms_)

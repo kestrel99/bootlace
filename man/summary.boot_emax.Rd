@@ -33,7 +33,10 @@ covered E0, Emax and log EC50 in 90-95\% and 89-93\% of samples
 respectively. Use \code{ci = "percentile"} for the plain percentile intervals.
 BCa needs the jackknife fits stored by \code{\link[=bootstrap_emax]{bootstrap_emax()}}; for older
 objects without them, percentile intervals are used and the header says
-so. Profile-likelihood intervals (\code{confint(fit)}, see
+so. For a parameter where BCa can't be computed (fewer than 3 usable
+jackknife fits, jackknife values with no spread, or an invalid
+acceleration adjustment) the percentile interval is shown and the output
+says why; if that applies to every parameter, the header says percentile. Profile-likelihood intervals (\code{confint(fit)}, see
 \code{\link[=confint.logistic_emax]{confint.logistic_emax()}}) did as well or better and also show when a
 bound is not determined by the data.
 

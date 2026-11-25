@@ -220,7 +220,10 @@ print.boot_emax <- function(x, ...) {
 #' respectively. Use `ci = "percentile"` for the plain percentile intervals.
 #' BCa needs the jackknife fits stored by [bootstrap_emax()]; for older
 #' objects without them, percentile intervals are used and the header says
-#' so. Profile-likelihood intervals (`confint(fit)`, see
+#' so. For a parameter where BCa can't be computed (fewer than 3 usable
+#' jackknife fits, jackknife values with no spread, or an invalid
+#' acceleration adjustment) the percentile interval is shown and the output
+#' says why; if that applies to every parameter, the header says percentile. Profile-likelihood intervals (`confint(fit)`, see
 #' [confint.logistic_emax()]) did as well or better and also show when a
 #' bound is not determined by the data.
 #'
@@ -295,6 +298,14 @@ summary.boot_emax <- function(object, ci = c("bca", "percentile"), ...) {
     percentile = "percentile",
     percentile_fallback = "percentile (no jackknife fits stored for BCa)"
   )
+  # BCa requested but unavailable for every parameter: say so in the header.
+  if (ci == "bca" && length(no_bca) == length(coef_orig)) {
+    reasons <- unique(vapply(ints, function(r) {
+      sub("^percentile \\(BCa unavailable: (.*)\\)$", "\\1", attr(r, "method"))
+    }, character(1L)))
+    method_lbl <- sprintf("percentile (BCa unavailable: %s)",
+                          paste(reasons, collapse = "; "))
+  }
   attr(tbl, "ci_method")      <- method_lbl
   attr(tbl, "bca_unavailable") <- no_bca
 
@@ -303,11 +314,16 @@ summary.boot_emax <- function(object, ci = c("bca", "percentile"), ...) {
     "  Replicates : %d  |  CI level: %.0f%%  |  CI method: %s\n",
     object$n_boot, level * 100, method_lbl
   ))
-  if (length(no_bca) > 0L)
-    cat(sprintf(
-      "  BCa unavailable (acceleration adjustment invalid) for: %s; percentile intervals shown.\n",
-      paste(no_bca, collapse = ", ")
-    ))
+  if (length(no_bca) > 0L) {
+    why <- vapply(ints, function(r) {
+      sub("^percentile \\(BCa unavailable: (.*)\\)$", "\\1", attr(r, "method"))
+    }, character(1L))[match(no_bca, names(fit$coefficients))]
+    for (w in unique(why))
+      cat(sprintf(
+        "  BCa unavailable (%s) for: %s; percentile intervals shown.\n",
+        w, paste(no_bca[why == w], collapse = ", ")
+      ))
+  }
   cat("\n")
   print(tbl)
   invisible(tbl)

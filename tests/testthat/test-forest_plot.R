@@ -707,3 +707,23 @@ test_that("a fully aliased factor is reported as not estimable, not an error", {
   expect_true(is.na(hdr$pval))
   expect_equal(hdr[["P-value"]], "not estimable")
 })
+
+# ---- Follow-up review round 3: mixed coding within a term -------------------------
+
+test_that("y ~ a + a:b effects come from the fitted design (mixed coding)", {
+  set.seed(2)
+  d <- data.frame(a = factor(sample(c("p", "q", "r"), 300, TRUE)),
+                  b = factor(sample(c("u", "v"), 300, TRUE)))
+  d$y <- rbinom(300, 1, 0.4)
+  fit <- glm(y ~ a + a:b, data = d, family = binomial)
+  pd  <- fp_data(fit, d)
+  lp  <- function(a, b) predict(fit, data.frame(a = a, b = b))
+  # a = q vs p at the reference level of b
+  row_q <- pd[pd$Predictor == "  q" & pd$group == 1, ]
+  expect_equal(row_q$est, unname(exp(lp("q", "u") - lp("p", "u"))))
+  # (q vs p) x (v vs u): ratio of ORs
+  row_qv <- pd[pd$Predictor == "  q:v", ]
+  expect_equal(row_qv$est, unname(exp((lp("q", "v") - lp("q", "u")) -
+                                      (lp("p", "v") - lp("p", "u")))))
+  expect_false(any(pd[["P-value"]] == "not estimable"))
+})

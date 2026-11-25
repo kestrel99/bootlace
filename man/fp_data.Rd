@@ -72,9 +72,10 @@ interaction is a ratio of odds ratios (or of hazard ratios), not an OR/HR
 itself, so these rows are labelled "(ratio of ORs)" or "(ratio of HRs)".
 
 Every displayed estimate is a linear combination of the fitted
-coefficients built from the model's own contrasts, so the table is the
-same whatever contrast coding was used (e.g. \code{contr.treatment} or
-\code{contr.sum}). Factor rows compare each level with the first (reference)
+coefficients built from the coding R actually used for each factor in
+each term (contrasts, or indicator coding when a lower-order term is
+absent, as for \code{a} in \code{y ~ a + a:b}), so the table is the same whatever
+contrast coding was used (e.g. \code{contr.treatment} or \code{contr.sum}). Factor rows compare each level with the first (reference)
 level. When a term is part of an interaction, its rows are its effect at
 the reference level of each factor it interacts with (and at 0 for an
 interacting numeric variable), which is what treatment coding reports.
