@@ -62,3 +62,12 @@ test_that("stepwise_reduce() and fp_data() validate their arguments", {
   expect_error(fp_data(FIT, DF, ci_level = 0), "`ci_level`")
   expect_error(fp_data(FIT, DF, percs = c(0.5, 1.2)), "`percs`")
 })
+
+test_that("compare_logistic_roc() rejects NA and infinite n_cuts / auc_digits", {
+  m2 <- glm(y ~ age, data = DF, family = binomial)
+  for (bad in list(NA, Inf, -1, 1.5, "2")) {
+    expect_error(compare_logistic_roc(list(FIT, m2), n_cuts = bad), "`n_cuts`")
+    expect_error(compare_logistic_roc(list(FIT, m2), auc_digits = bad),
+                 "`auc_digits`")
+  }
+})

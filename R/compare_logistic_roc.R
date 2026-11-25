@@ -84,15 +84,7 @@ compare_logistic_roc <- function(
     stop("`model_names` must be unique.")
   }
 
-  if (
-    !is.numeric(n_cuts) ||
-      length(n_cuts) != 1L ||
-      n_cuts < 0 ||
-      n_cuts != round(n_cuts)
-  ) {
-    stop("`n_cuts` must be a single non-negative integer.")
-  }
-  n_cuts <- as.integer(n_cuts)
+  n_cuts <- .check_count(n_cuts, "n_cuts", min = 0L)
 
   if (!is.logical(labels) || length(labels) != 1L || is.na(labels)) {
     stop("`labels` must be `TRUE` or `FALSE`.")
@@ -100,15 +92,7 @@ compare_logistic_roc <- function(
   if (!is.logical(show_auc) || length(show_auc) != 1L || is.na(show_auc)) {
     stop("`show_auc` must be `TRUE` or `FALSE`.")
   }
-  if (
-    !is.numeric(auc_digits) ||
-      length(auc_digits) != 1L ||
-      auc_digits < 0 ||
-      auc_digits != round(auc_digits)
-  ) {
-    stop("`auc_digits` must be a single non-negative integer.")
-  }
-  auc_digits <- as.integer(auc_digits)
+  auc_digits <- .check_count(auc_digits, "auc_digits", min = 0L)
 
   if (!is.logical(diagonal) || length(diagonal) != 1L || is.na(diagonal)) {
     stop("`diagonal` must be `TRUE` or `FALSE`.")
