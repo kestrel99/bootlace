@@ -38,7 +38,10 @@ bound of \code{ec50}), and a warning says so: the data don't determine the
 parameter in that direction.
 
 For EC50 in a model without EC50 covariates the profile is exact: at a
-fixed EC50 the model is a logistic GLM in the other parameters. Other
+fixed EC50 the model is a logistic GLM in the other parameters, and its
+bounds are also checked against the limiting models (EC50 -> 0 and
+EC50 -> Inf): if a limit is within the cut-off, that bound is 0 or Inf
+with a warning. Other
 profiles optimise the other parameters from two starting points and keep
 the better fit. Before a bound is located, both ends of the bracket are
 recomputed and checked to straddle the cut-off. Redundant (aliased)

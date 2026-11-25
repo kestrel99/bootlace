@@ -173,12 +173,17 @@ optimum) has class \code{bootlace_emax_identification_warning}. When the
 optimiser stops before reaching the optimum, the fit is retried once
 (longer, tighter optimisation and more Newton steps). If it still stops
 short, the profile likelihood of EC50 is scanned from 1e-4 times the lowest
-to 1e4 times the highest non-zero exposure. If a finite EC50 fits better,
-the optimiser is restarted from there (often rescuing the fit). If the
-best fit is at the top or bottom of the scan, the maximum is at an EC50
-boundary (EC50 -> Inf along the Emax/EC50 ridge, or EC50 -> 0), and the
-warning has class \code{bootlace_emax_ridge_warning}; otherwise it is an
-optimisation failure, with class \code{bootlace_emax_stopped_warning}.
+to 1e4 times the highest non-zero exposure, continuing to 1e10 times when
+the best fit is at an edge, and compared with the limiting model (EC50 ->
+0 or Inf). If a finite EC50 fits better, the optimiser is restarted from
+there (often rescuing the fit). If the profile keeps improving to the end
+of the scan and the limiting model fits better than the fit, the maximum is
+at an EC50 boundary (EC50 -> Inf along the Emax/EC50 ridge, or EC50 -> 0)
+and the warning has class \code{bootlace_emax_ridge_warning}. If nothing fits
+better than the fit by more than 1e-6 in log-likelihood (the fit, the best
+finite EC50 and the limit are indistinguishable), EC50 is weakly
+identified, with class \code{bootlace_emax_identification_warning}. Otherwise
+it is an optimisation failure, with class \code{bootlace_emax_stopped_warning}.
 \code{\link[=bootstrap_emax]{bootstrap_emax()}} keeps boundary and non-identified replicates (counting
 each reason) but drops optimisation failures.
 }

@@ -1,5 +1,11 @@
 # bootlace 0.1.0
 
+* Fixes from the fourth follow-up scientific review (no issue):
+  * `confint()` for Emax fits: the exact EC50 profile uses a basis that stays stable as EC50 -> 0 when no exposure is zero (previously the dose column was lost at tiny EC50, giving a false positive lower bound), and EC50 bounds are checked against the limiting models (EC50 -> 0 and EC50 -> Inf).
+  * `plot_emax_curve()` and `summary.boot_emax()` no longer fail or mislabel intervals when no bootstrap replicates were retained: the plot draws the curve without a band and warns, and the summary reports the interval as unavailable.
+  * `fit_logistic_emax()`: when the EC50 scan's best fit is at its edge, the scan continues outwards and compares the fit with the limiting model. Only a profile that keeps improving, with a limit that beats the fit, is reported as diverging; a ridge where the fit, a distant finite EC50 and the limit are indistinguishable is reported as weakly identified (`bootlace_emax_identification_warning`), and a better distant finite EC50 restarts the optimiser.
+  * `fp_data()` handles no-intercept models (e.g. `y ~ 0 + a`), where R codes the first factor by indicators.
+
 * Fixes from the third follow-up scientific review (no issue):
   * `confint()` for Emax fits: a redundant (aliased) covariate no longer makes the EC50 profile look unbounded, and a profile fit that fails numerically now gives an `NA` bound with a warning instead of an infinite one. The exact EC50 profile also handles the EC50 -> Inf and EC50 -> 0 limits.
   * BCa intervals need at least 3 usable jackknife fits; otherwise `summary.boot_emax()` and `plot_emax_curve()` show labelled percentile intervals (the plot used to fail, and the summary silently used zero acceleration).

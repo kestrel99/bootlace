@@ -223,7 +223,9 @@ print.boot_emax <- function(x, ...) {
 #' so. For a parameter where BCa can't be computed (fewer than 3 usable
 #' jackknife fits, jackknife values with no spread, or an invalid
 #' acceleration adjustment) the percentile interval is shown and the output
-#' says why; if that applies to every parameter, the header says percentile. Profile-likelihood intervals (`confint(fit)`, see
+#' says why; if that applies to every parameter, the header says percentile.
+#' If no bootstrap replicates were retained, the standard errors, bias and
+#' intervals are `NA` and the header says the interval is unavailable. Profile-likelihood intervals (`confint(fit)`, see
 #' [confint.logistic_emax()]) did as well or better and also show when a
 #' bound is not determined by the data.
 #'
@@ -254,10 +256,13 @@ summary.boot_emax <- function(object, ci = c("bca", "percentile"), ...) {
   B      <- object$boot_theta
   th     <- fit$theta_hat
   if (ci == "bca" && is.null(object$jack_theta)) ci <- "percentile_fallback"
+  # No retained replicates: no SE, bias or interval can be computed.
+  if (nrow(B) == 0L) ci <- "none"
 
   # Intervals on the optimisation scale, then back-transform ec50.
   ints <- lapply(seq_len(ncol(B)), function(j) {
-    if (ci == "bca") .bca_ci(B[, j], th[[j]], object$jack_theta[, j], level)
+    if (ci == "none") c(NA_real_, NA_real_)
+    else if (ci == "bca") .bca_ci(B[, j], th[[j]], object$jack_theta[, j], level)
     else stats::quantile(B[, j], c(alpha / 2, 1 - alpha / 2), names = FALSE,
                          na.rm = TRUE)
   })
@@ -279,6 +284,7 @@ summary.boot_emax <- function(object, ci = c("bca", "percentile"), ...) {
   coef_orig <- fit$coefficients
   boot_se   <- apply(boot_rep, 2, stats::sd, na.rm = TRUE)
   boot_bias <- colMeans(boot_rep, na.rm = TRUE) - coef_orig
+  boot_bias[!is.finite(boot_bias)] <- NA_real_
 
   tbl <- data.frame(
     Estimate  = round(coef_orig, 4),
@@ -294,6 +300,8 @@ summary.boot_emax <- function(object, ci = c("bca", "percentile"), ...) {
     sprintf("CI_%d%%_hi", ci_pct)
   )
   method_lbl <- switch(ci,
+    none = sprintf("unavailable (no bootstrap replicates retained, 0 of %d requested)",
+                   max(0L, object$n_requested)),
     bca = "BCa",
     percentile = "percentile",
     percentile_fallback = "percentile (no jackknife fits stored for BCa)"

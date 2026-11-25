@@ -505,7 +505,21 @@ fp_plot <- function(
   # actually used for that factor in that term. The terms object's "factors"
   # attribute records it: 1 = contrasts, 2 = indicator (dummy) coding, which
   # R uses when a lower-order term is absent (e.g. `a` in `y ~ a + a:b`).
-  fa <- attr(stats::terms(model), "factors")
+  tt <- stats::terms(model)
+  fa <- attr(tt, "factors")
+  # Without an intercept, model.matrix() also codes the first factor of the
+  # first term containing one by indicators, although "factors" still says
+  # 1 (R's modelmatrix() C code); mirror that. (coxph keeps the intercept
+  # attribute and drops the column itself, so this applies to GLMs.)
+  if (!is.null(fa) && identical(attr(tt, "intercept"), 0L)) {
+    for (j in seq_len(ncol(fa))) {
+      v <- rownames(fa)[rownames(fa) %in% facs & fa[, j] > 0L][1L]
+      if (!is.na(v)) {
+        fa[v, j] <- 2L
+        break
+      }
+    }
+  }
   coding <- stats::setNames(lapply(terms_, function(t) {
     fv <- vars[[t]][vars[[t]] %in% facs]
     if (length(fv) == 0L) return(list())

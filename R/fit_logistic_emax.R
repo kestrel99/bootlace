@@ -70,12 +70,17 @@
 #' optimiser stops before reaching the optimum, the fit is retried once
 #' (longer, tighter optimisation and more Newton steps). If it still stops
 #' short, the profile likelihood of EC50 is scanned from 1e-4 times the lowest
-#' to 1e4 times the highest non-zero exposure. If a finite EC50 fits better,
-#' the optimiser is restarted from there (often rescuing the fit). If the
-#' best fit is at the top or bottom of the scan, the maximum is at an EC50
-#' boundary (EC50 -> Inf along the Emax/EC50 ridge, or EC50 -> 0), and the
-#' warning has class `bootlace_emax_ridge_warning`; otherwise it is an
-#' optimisation failure, with class `bootlace_emax_stopped_warning`.
+#' to 1e4 times the highest non-zero exposure, continuing to 1e10 times when
+#' the best fit is at an edge, and compared with the limiting model (EC50 ->
+#' 0 or Inf). If a finite EC50 fits better, the optimiser is restarted from
+#' there (often rescuing the fit). If the profile keeps improving to the end
+#' of the scan and the limiting model fits better than the fit, the maximum is
+#' at an EC50 boundary (EC50 -> Inf along the Emax/EC50 ridge, or EC50 -> 0)
+#' and the warning has class `bootlace_emax_ridge_warning`. If nothing fits
+#' better than the fit by more than 1e-6 in log-likelihood (the fit, the best
+#' finite EC50 and the limit are indistinguishable), EC50 is weakly
+#' identified, with class `bootlace_emax_identification_warning`. Otherwise
+#' it is an optimisation failure, with class `bootlace_emax_stopped_warning`.
 #' [bootstrap_emax()] keeps boundary and non-identified replicates (counting
 #' each reason) but drops optimisation failures.
 #'
@@ -363,10 +368,12 @@ fit_logistic_emax <- function(
   # optimiser got stuck, so restart from there; a best fit at the edge of
   # the scan means the maximum is at an EC50 boundary.
   boundary <- "none"
+  boundary_dir <- 0
   if (opt$convergence == 0 && !is.null(pol$H_inv) && pol$decrement >= 1e-4) {
     chk <- .emax_boundary_check(x, y, Z_lin, Z_emax, Z_ec50, idx,
                                 pol$par, nll)
-    boundary <- chk$type
+    boundary     <- chk$type
+    boundary_dir <- chk$dir
     if (boundary == "finite") {
       rs <- tryCatch(
         stats::optim(chk$start, nll, method = "BFGS",
@@ -396,16 +403,26 @@ fit_logistic_emax <- function(
     ), "bootlace_emax_identification_warning")
   } else if (!converged) {
     # Still short of the optimum after the retry and restart. Either the
-    # maximum is at an EC50 boundary (a property of the data), or the
-    # optimiser failed.
-    if (boundary == "diverging_up") {
+    # maximum is at an EC50 boundary or on a flat ridge towards one (a
+    # property of the data), or the optimiser failed.
+    if (boundary == "flat") {
+      .emax_warning(paste0(
+        "EC50 is weakly identified: the likelihood is flat (within 1e-6) ",
+        "between the fitted EC50 and ",
+        if (boundary_dir > 0) "EC50 -> Inf, where Emax and EC50 grow together"
+        else "EC50 -> 0 (a step at the lowest exposure)",
+        ", so the data can't tell them apart and the reported EC50 and Emax ",
+        "are just one point on that ridge. `converged` is FALSE. See ",
+        "confint(fit, method = \"profile\")."
+      ), "bootlace_emax_identification_warning")
+    } else if (boundary == "diverging" && boundary_dir > 0) {
       .emax_warning(paste0(
         "EC50 is diverging: the likelihood keeps improving as EC50 and Emax ",
         "grow together, so the maximum is at the boundary (EC50 -> Inf) and ",
         "the reported EC50 and Emax are just points on that ridge. ",
         "`converged` is FALSE. See confint(fit, method = \"profile\")."
       ), "bootlace_emax_ridge_warning")
-    } else if (boundary == "diverging_down") {
+    } else if (boundary == "diverging") {
       .emax_warning(paste0(
         "EC50 is diverging to 0: the likelihood keeps improving as EC50 ",
         "shrinks, so the maximum is at the boundary (a step at the lowest ",

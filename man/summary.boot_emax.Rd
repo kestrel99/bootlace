@@ -36,7 +36,9 @@ objects without them, percentile intervals are used and the header says
 so. For a parameter where BCa can't be computed (fewer than 3 usable
 jackknife fits, jackknife values with no spread, or an invalid
 acceleration adjustment) the percentile interval is shown and the output
-says why; if that applies to every parameter, the header says percentile. Profile-likelihood intervals (\code{confint(fit)}, see
+says why; if that applies to every parameter, the header says percentile.
+If no bootstrap replicates were retained, the standard errors, bias and
+intervals are \code{NA} and the header says the interval is unavailable. Profile-likelihood intervals (\code{confint(fit)}, see
 \code{\link[=confint.logistic_emax]{confint.logistic_emax()}}) did as well or better and also show when a
 bound is not determined by the data.
 

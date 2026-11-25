@@ -157,9 +157,21 @@ plot_emax_curve <- function(
   prob     <- .pred(fit$theta_hat)
   # apply over rows of boot_theta (each row is one theta vector)
   # result is n_grid x n_boot
-  boot_mat <- apply(be$boot_theta, 1L, .pred)
+  # No retained replicates: draw the curve without a band and say why.
+  no_draws <- nrow(be$boot_theta) == 0L
+  if (no_draws) {
+    warning(sprintf(paste0(
+      "plot_emax_curve(): no bootstrap replicates were retained (0 of %d ",
+      "requested), so no confidence band can be drawn."
+    ), max(0L, be$n_requested)), call. = FALSE)
+    ci <- "none"
+  } else {
+    boot_mat <- matrix(apply(be$boot_theta, 1L, .pred), nrow = n_grid)
+  }
   if (ci == "bca" && is.null(be$jack_theta)) ci <- "percentile"
-  if (ci == "bca") {
+  if (ci == "none") {
+    ci_lo <- ci_hi <- rep(NA_real_, n_grid)
+  } else if (ci == "bca") {
     # Pointwise BCa, using predictions from the stored jackknife fits.
     jack_ok  <- stats::complete.cases(be$jack_theta)
     # n_grid x (usable jackknife fits); zero columns when there are none, in
@@ -215,6 +227,7 @@ plot_emax_curve <- function(
       )
     else "",
     cl_pct,
+    if (ci == "none") "interval unavailable: no retained replicates," else
     if (ci != "bca") "percentile" else if (n_fall == 0L) "BCa" else
       if (n_fall == n_grid) {
         sprintf("percentile (BCa unavailable: %s)", paste(fall_why, collapse = "; "))
@@ -226,13 +239,14 @@ plot_emax_curve <- function(
   )
 
   # ---- Base plot -------------------------------------------------------------
-  p <- ggplot2::ggplot(curve_df, ggplot2::aes(x = x, y = prob)) +
-    ggplot2::geom_ribbon(
+  p <- ggplot2::ggplot(curve_df, ggplot2::aes(x = x, y = prob))
+  if (!no_draws)
+    p <- p + ggplot2::geom_ribbon(
       ggplot2::aes(ymin = ci_lo, ymax = ci_hi),
       fill  = palette[[1L]],
       alpha = ribbon_alpha
-    ) +
-    ggplot2::geom_line(colour = palette[[1L]], linewidth = line_size)
+    )
+  p <- p + ggplot2::geom_line(colour = palette[[1L]], linewidth = line_size)
 
   # ---- Raw jitter points -----------------------------------------------------
   if (raw_data) {

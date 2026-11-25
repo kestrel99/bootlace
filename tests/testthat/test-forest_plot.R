@@ -727,3 +727,28 @@ test_that("y ~ a + a:b effects come from the fitted design (mixed coding)", {
                                       (lp("p", "v") - lp("p", "u")))))
   expect_false(any(pd[["P-value"]] == "not estimable"))
 })
+
+# ---- Follow-up review round 4: no-intercept models ---------------------------------
+
+test_that("no-intercept models use R's indicator coding for the first factor", {
+  set.seed(3)
+  d <- data.frame(a = factor(sample(c("A", "B", "C"), 300, TRUE)),
+                  b = factor(sample(c("u", "v"), 300, TRUE)),
+                  z = rnorm(300))
+  d$y <- rbinom(300, 1, 0.4)
+  lp <- function(fit, a, b = "u", z = 0) {
+    unname(predict(fit, data.frame(a = a, b = b, z = z)))
+  }
+  # y ~ 0 + a: full indicators for a
+  f1 <- glm(y ~ 0 + a, data = d, family = binomial)
+  p1 <- fp_data(f1, d)
+  expect_equal(p1$est[p1$Predictor == "  B"], exp(lp(f1, "B") - lp(f1, "A")))
+  expect_false(any(p1[["P-value"]] == "not estimable"))
+  # y ~ 0 + z + a + b: a (first factor) by indicators, b by contrasts
+  f2 <- glm(y ~ 0 + z + a + b, data = d, family = binomial)
+  p2 <- fp_data(f2, d)
+  expect_equal(p2$est[p2$Predictor == "  C"], exp(lp(f2, "C") - lp(f2, "A")))
+  expect_equal(p2$est[p2$Predictor == "  v"],
+               exp(lp(f2, "A", "v") - lp(f2, "A", "u")))
+  expect_false(any(p2[["P-value"]] == "not estimable"))
+})

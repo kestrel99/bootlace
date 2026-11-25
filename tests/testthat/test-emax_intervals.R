@@ -220,11 +220,15 @@ test_that("a refit that still stops short is told apart from a diverging ridge",
     list(par = p, H_inv = diag(length(p)), decrement = 1)
   })
   local_mocked_bindings(.emax_boundary_check = function(...) {
-    list(type = "diverging_up", start = NULL)
+    list(type = "diverging", dir = 1, start = NULL)
   })
   expect_true("bootlace_emax_ridge_warning" %in% classes())
   local_mocked_bindings(.emax_boundary_check = function(...) {
-    list(type = "none", start = NULL)
+    list(type = "flat", dir = 1, start = NULL)
+  })
+  expect_true("bootlace_emax_identification_warning" %in% classes())
+  local_mocked_bindings(.emax_boundary_check = function(...) {
+    list(type = "none", dir = 0, start = NULL)
   })
   expect_true("bootlace_emax_stopped_warning" %in% classes())
 })
@@ -353,5 +357,83 @@ test_that("the boundary check recognises a diverging EC50", {
   nll <- .emax_nll_fn(fit$x, fit$y, fit$Z_lin, fit$Z_emax, fit$Z_ec50, fit$idx)
   chk <- .emax_boundary_check(fit$x, fit$y, fit$Z_lin, fit$Z_emax, fit$Z_ec50,
                               fit$idx, fit$theta_hat, nll)
-  expect_equal(chk$type, "diverging_up")
+  expect_equal(chk$type, "diverging")
+  expect_equal(chk$dir, 1)
+})
+
+# ---- Follow-up review round 4 --------------------------------------------------
+
+test_that("EC50 profile: no false lower bound without zero exposures", {
+  # Data from the EC50 -> 0 limit (logit = a + b / x): the limiting model is
+  # within the cut-off, so the lower bound is 0. The old basis lost the dose
+  # column at tiny EC50 and reported about 3e-11.
+  set.seed(1)
+  x   <- rep(c(1, 2, 4, 8, 16, 32), length.out = 600)
+  y   <- rbinom(600, 1, plogis(-1 + 3 / x))
+  fit <- quiet_sample_size(quiet_emax(fit_logistic_emax(y, x)))
+  lim <- glm(y ~ I(1 / x), family = binomial)
+  expect_lt(2 * (-fit$loglik - lim$deviance / 2), qchisq(0.95, 1))
+  expect_warning(ci <- confint(fit, parm = "ec50"), "lower bound is 0")
+  expect_equal(ci[1, 1], 0)
+  expect_true(is.finite(ci[1, 2]))
+})
+
+test_that("EC50 profile limits match the limiting GLMs", {
+  set.seed(1)
+  x   <- rep(c(1, 2, 4, 8, 16, 32), length.out = 600)
+  y   <- rbinom(600, 1, plogis(-1 + 3 / x))
+  fit <- quiet_sample_size(quiet_emax(fit_logistic_emax(y, x)))
+  nll <- .emax_nll_fn(fit$x, fit$y, fit$Z_lin, fit$Z_emax, fit$Z_ec50, fit$idx)
+  pf  <- .emax_glm_profile_fn(fit$x, fit$y, fit$Z_lin, fit$Z_emax, fit$idx,
+                              fit$theta_hat, nll)
+  expect_equal(pf(-Inf, list())$value,
+               glm(y ~ I(1 / x), family = binomial)$deviance / 2)
+  expect_equal(pf(Inf, list())$value,
+               glm(y ~ x, family = binomial)$deviance / 2)
+  # A finite EC50 agrees with the direct likelihood in either basis.
+  for (e in c(0.01, 1, 100)) {
+    p  <- pf(log(e), list())
+    th <- fit$theta_hat
+    th[-fit$idx$log_ec50] <- p$par
+    th[fit$idx$log_ec50]  <- log(e)
+    expect_equal(nll(th), p$value, tolerance = 1e-6)
+  }
+})
+
+test_that("the boundary check calls a flat ridge weakly identified, not divergent", {
+  # Empirical logits nearly linear in dose: a finite optimum near EC50 = 9.4e4
+  # that the EC50 -> Inf limit matches to about 1e-12.
+  x <- rep(c(0, 1, 2), c(100, 100, 590))
+  y <- c(rep(1:0, c(50, 50)), rep(1:0, c(73, 27)), rep(1:0, c(519, 71)))
+  fit <- quiet_sample_size(quiet_emax(fit_logistic_emax(y, x)))
+  nll <- .emax_nll_fn(fit$x, fit$y, fit$Z_lin, fit$Z_emax, fit$Z_ec50, fit$idx)
+  pf  <- .emax_glm_profile_fn(fit$x, fit$y, fit$Z_lin, fit$Z_emax, fit$idx,
+                              fit$theta_hat, nll)
+  o   <- optimize(function(v) pf(v, list())$value, log(c(1e3, 1e7)))
+  th  <- fit$theta_hat
+  th[-fit$idx$log_ec50] <- pf(o$minimum, list())$par
+  th[fit$idx$log_ec50]  <- o$minimum
+  chk <- .emax_boundary_check(fit$x, fit$y, fit$Z_lin, fit$Z_emax, fit$Z_ec50,
+                              fit$idx, th, nll)
+  expect_equal(chk$type, "flat")
+  expect_equal(chk$dir, 1)
+  # From a fit short of that optimum, it restarts beyond the original grid.
+  chk2 <- .emax_boundary_check(fit$x, fit$y, fit$Z_lin, fit$Z_emax,
+                               fit$Z_ec50, fit$idx, fit$theta_hat, nll)
+  expect_equal(chk2$type, "finite")
+  expect_gt(exp(chk2$start[["log_ec50"]]), 2e4)
+})
+
+test_that("zero retained bootstrap draws: plot and summary say unavailable", {
+  fit <- suppressWarnings(fit_logistic_emax(c(0, 0, 1), c(0, 5, 10)))
+  be  <- suppressMessages(suppressWarnings(bootstrap_emax(fit, n_boot = 40L, seed = 1L)))
+  expect_equal(nrow(be$boot_theta), 0L)
+  expect_warning(p <- plot_emax_curve(be, n_grid = 10L), "no bootstrap replicates")
+  expect_match(p$labels$subtitle, "unavailable")
+  expect_false(any(vapply(p$layers, function(l) inherits(l$geom, "GeomRibbon"),
+                          logical(1L))))
+  out <- capture.output(tb <- summary(be))
+  expect_match(out, "unavailable \\(no bootstrap replicates retained", all = FALSE)
+  expect_false(any(grepl("percentile intervals shown", out)))
+  expect_true(all(is.na(tb[, 2:5])))
 })

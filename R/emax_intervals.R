@@ -79,7 +79,10 @@
 #' parameter in that direction.
 #'
 #' For EC50 in a model without EC50 covariates the profile is exact: at a
-#' fixed EC50 the model is a logistic GLM in the other parameters. Other
+#' fixed EC50 the model is a logistic GLM in the other parameters, and its
+#' bounds are also checked against the limiting models (EC50 -> 0 and
+#' EC50 -> Inf): if a limit is within the cut-off, that bound is 0 or Inf
+#' with a warning. Other
 #' profiles optimise the other parameters from two starting points and keep
 #' the better fit. Before a bound is located, both ends of the bracket are
 #' recomputed and checked to straddle the cut-off. Redundant (aliased)
@@ -177,6 +180,15 @@ confint.logistic_emax <- function(object, parm, level = 0.95,
         .profile_bound(nll, th, j, -1, target, step, rescale, prof_fn),
         .profile_bound(nll, th, j, +1, target, step, rescale, prof_fn)
       )
+      # The confidence set includes EC50 values arbitrarily close to 0 (or
+      # Inf) whenever the limiting model is inside the cut-off, whatever the
+      # walk found on the way.
+      if (!is.null(prof_fn)) {
+        for (side in 1:2) {
+          lim <- prof_fn(c(-Inf, Inf)[side], list())
+          if (!is.null(lim) && lim$value < target) out[k, side] <- c(-Inf, Inf)[side]
+        }
+      }
       for (side in which(is.na(out[k, ])))
         warning(sprintf(paste0(
           "The profile likelihood for %s could not be computed %s the ",
@@ -277,20 +289,26 @@ confint.logistic_emax <- function(object, parm, level = 0.95,
 # Exact profile of log EC50 for a model without EC50 covariates: at fixed
 # EC50 the linear predictor is e0 + (emax + Z_emax g) h + Z_lin b with
 # h = x / (EC50 + x), a logistic GLM. Returns profile_fn(v, starts) for
-# .profile_bound(); `starts` are unused. The value is deviance / 2, which is
-# the negative log-likelihood for 0/1 outcomes. The dose column is scaled to
-# a maximum of 1 so the limits stay well defined: as EC50 -> Inf, h is
-# proportional to x (a logistic fit linear in x); as EC50 -> 0, h is 1 for
-# every non-zero exposure. Aliased (redundant) columns get a coefficient of
-# 0, which gives the same fit; NULL means the fit failed.
+# .profile_bound(); `starts` are unused; v may be -Inf or Inf (the limiting
+# models). The value is deviance / 2, which is the negative log-likelihood
+# for 0/1 outcomes. Aliased (redundant) columns get a coefficient of 0,
+# which gives the same fit; NULL means the fit failed.
+#
+# The basis is chosen so both limits are numerically stable:
+# - EC50 -> Inf: h is proportional to x, so the dose column is h scaled to a
+#   maximum of 1 (a logistic fit linear in x in the limit).
+# - EC50 -> 0 with no zero exposure: h = 1 - EC50 / (EC50 + x) is nearly
+#   constant and numerically collinear with the intercept, which would drop
+#   the dose column and give a false profile. Since h = 1 - EC50 * u with
+#   u = 1 / (EC50 + x), span(1, h) = span(1, u), and u has the stable limit
+#   1 / x; so below the median exposure u is used instead, and E0 and Emax
+#   are recovered as e0 = a - emax, emax = -b_u / EC50.
+# - EC50 -> 0 with zero exposures: h tends to the indicator of x > 0, which
+#   the h column represents stably.
 .emax_glm_profile_fn <- function(x, y, Z_lin, Z_emax, idx, th, nll) {
-  function(v, starts) {
-    ev <- exp(v)
-    h  <- if (is.finite(ev)) x / (ev + x) else x / max(x)
-    h[x == 0] <- 0
-    sc <- max(h)
-    if (!is.finite(sc) || sc <= 0) return(NULL)
-    X <- cbind(1, h / sc, Z_emax * (h / sc), Z_lin)
+  use_u_below <- if (all(x > 0)) stats::median(x) else -Inf
+  emax_pos <- seq_len(1L + length(idx$emax_cov)) + 1L
+  glm_coef <- function(X) {
     f <- tryCatch(
       suppressWarnings(stats::glm.fit(X, y, family = stats::binomial())),
       error = function(e) NULL
@@ -298,31 +316,65 @@ confint.logistic_emax <- function(object, parm, level = 0.95,
     if (is.null(f) || !is.finite(f$deviance)) return(NULL)
     b <- f$coefficients
     b[is.na(b)] <- 0
-    # Back to the model's scale (emax and its covariate effects multiply h).
-    emax_pos <- seq_len(1L + length(idx$emax_cov)) + 1L
-    b[emax_pos] <- b[emax_pos] / sc
-    if (!is.finite(ev)) b[emax_pos] <- sign(b[emax_pos]) * .Machine$double.xmax
+    list(value = f$deviance / 2, b = b)
+  }
+  function(v, starts) {
+    ev <- exp(v)
+    h  <- if (is.finite(ev)) x / (ev + x) else x / max(x)
+    h[x == 0] <- 0
+    if (ev < use_u_below) {
+      u  <- 1 / (ev + x)
+      su <- max(u)
+      f  <- glm_coef(cbind(1, u / su, Z_emax * h, Z_lin))
+      if (is.null(f)) return(NULL)
+      b    <- f$b
+      b_u  <- b[2L] / su
+      emax <- if (ev > 0) -b_u / ev else -sign(b_u) * .Machine$double.xmax
+      b[1L] <- b[1L] - emax
+      b[2L] <- emax
+    } else {
+      sc <- max(h)
+      if (!is.finite(sc) || sc <= 0) return(NULL)
+      f <- glm_coef(cbind(1, h / sc, Z_emax * (h / sc), Z_lin))
+      if (is.null(f)) return(NULL)
+      b <- f$b
+      # Back to the model's scale (emax and its covariate effects multiply h).
+      b[emax_pos] <- b[emax_pos] / sc
+      if (!is.finite(ev)) b[emax_pos] <- sign(b[emax_pos]) * .Machine$double.xmax
+    }
     t <- th
     t[c(idx$e0, idx$emax0, idx$emax_cov, idx$lin)] <- b
     t[idx$log_ec50] <- v
-    list(value = f$deviance / 2, par = t[-idx$log_ec50])
+    list(value = f$value, par = t[-idx$log_ec50])
   }
 }
 
-# Scan the profile of log EC50 on a wide log grid (1e-4 x the lowest to
-# 1e4 x the highest non-zero exposure) to tell apart, for a fit at `th`
-# that stopped short of the optimum:
-# - "finite": a finite EC50 fits better than `th`; `start` is the full
-#   parameter vector there, to restart the optimiser from;
-# - "diverging_up" / "diverging_down": the best fit is at the top / bottom
-#   of the grid and the profile keeps improving towards it, i.e. the maximum
-#   is at the EC50 -> Inf / EC50 -> 0 boundary;
-# - "none": neither.
+# Scan the profile of log EC50 to classify a fit at `th` that stopped short
+# of the optimum. The grid runs from 1e-4 x the lowest to 1e4 x the highest
+# non-zero exposure; when its best point is at an edge, the scan continues
+# outwards at the same spacing to 1e10 x, and the limiting model (EC50 -> 0
+# or Inf; exact when EC50 has no covariates, else the far end of the scan)
+# is computed. With `tol` = 1e-6 on the negative log-likelihood:
+# - "finite": a finite EC50 (not the far end of the scan) beats `th` by more
+#   than `tol`; `start` is the full parameter vector there, to restart the
+#   optimiser from;
+# - "diverging": the profile keeps improving to the far end of the scan and
+#   the limiting model beats `th` by more than `tol`: the maximum is at the
+#   EC50 boundary in direction `dir` (+1 Inf, -1 zero);
+# - "flat": the best fit is towards a boundary, but nothing beats `th` by
+#   more than `tol` (the fit, the best finite EC50 and the limiting model
+#   are indistinguishable), or the profile turns before the far end without
+#   improving on `th`: the data can't tell a very large (or small) EC50 from
+#   the boundary, so EC50 is weakly identified;
+# - "none": neither (an interior grid optimum no better than `th`).
 .emax_boundary_check <- function(x, y, Z_lin, Z_emax, Z_ec50, idx, th, nll) {
+  tol   <- 1e-6
+  none  <- list(type = "none", dir = 0, start = NULL)
   x_pos <- x[x > 0]
   grid  <- seq(log(min(x_pos)) - log(1e4), log(max(x_pos)) + log(1e4),
                length.out = 41L)
-  prof <- if (ncol(Z_ec50) == 0L) {
+  exact <- ncol(Z_ec50) == 0L
+  prof <- if (exact) {
     .emax_glm_profile_fn(x, y, Z_lin, Z_emax, idx, th, nll)
   } else {
     others <- seq_along(th)[-idx$log_ec50]
@@ -340,23 +392,42 @@ confint.logistic_emax <- function(object, parm, level = 0.95,
         list(value = o$value, par = o$par)
     }
   }
-  fits <- lapply(grid, function(v) prof(v, list()))
-  vals <- vapply(fits, function(f) if (is.null(f)) Inf else f$value, numeric(1L))
-  if (all(!is.finite(vals))) return(list(type = "none", start = NULL))
-  best <- which.min(vals)
-  n_g  <- length(grid)
-  edge_tol <- 1e-8
-  if (best == n_g && vals[n_g] <= vals[n_g - 1L] + edge_tol)
-    return(list(type = "diverging_up", start = NULL))
-  if (best == 1L && vals[1L] <= vals[2L] + edge_tol)
-    return(list(type = "diverging_down", start = NULL))
-  if (vals[best] < nll(th) - 1e-6) {
-    start <- th
-    start[-idx$log_ec50] <- fits[[best]]$par
-    start[idx$log_ec50]  <- grid[best]
-    return(list(type = "finite", start = start))
+  scan <- function(vs) {
+    fits <- lapply(vs, function(v) prof(v, list()))
+    list(v = vs, fits = fits,
+         vals = vapply(fits, function(f) if (is.null(f)) Inf else f$value,
+                       numeric(1L)))
   }
-  list(type = "none", start = NULL)
+  finite_start <- function(sc, k) {
+    start <- th
+    start[-idx$log_ec50] <- sc$fits[[k]]$par
+    start[idx$log_ec50]  <- sc$v[k]
+    list(type = "finite", dir = 0, start = start)
+  }
+  f_th <- nll(th)
+  sc   <- scan(grid)
+  if (all(!is.finite(sc$vals))) return(none)
+  best <- which.min(sc$vals)
+  n_g  <- length(grid)
+  dir  <- if (best == n_g) 1 else if (best == 1L) -1 else 0
+  if (dir == 0)
+    return(if (sc$vals[best] < f_th - tol) finite_start(sc, best) else none)
+
+  # Best at an edge: continue outwards, then compare with the limit.
+  spacing <- grid[2L] - grid[1L]
+  edge    <- grid[if (dir > 0) n_g else 1L]
+  ext     <- scan(edge + dir * spacing * seq_len(ceiling(log(1e6) / spacing)))
+  sc$v    <- c(grid, ext$v)
+  sc$fits <- c(sc$fits, ext$fits)
+  sc$vals <- c(sc$vals, ext$vals)
+  far     <- length(sc$v)
+  best    <- which.min(sc$vals)
+  if (best != far && sc$vals[best] < f_th - tol) return(finite_start(sc, best))
+  lim   <- if (exact) prof(dir * Inf, list()) else NULL
+  f_lim <- if (is.null(lim)) sc$vals[far] else lim$value
+  if (best == far && f_lim < f_th - tol)
+    return(list(type = "diverging", dir = dir, start = NULL))
+  list(type = "flat", dir = dir, start = NULL)
 }
 
 # Start-value adjuster for profiling log EC50 or Emax (parameter `j`) that
