@@ -121,6 +121,7 @@ roc_logistic_emax <- function(
     }
   }
 
+  .check_range(thresholds, "thresholds", lower = 0, upper = 1)
   if (is.null(fill)) fill <- (n_models == 1L)
 
   if (!is.null(colors) && length(colors) < n_models)

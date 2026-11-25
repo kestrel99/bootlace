@@ -80,8 +80,9 @@ bootstrap_cox <- function(
 ) {
   if (!inherits(fit, "coxph"))
     stop("`fit` must be a fitted coxph object.")
-  if (conf_level <= 0 || conf_level >= 1)
-    stop("`conf_level` must be strictly between 0 and 1.")
+  n_boot <- .check_count(n_boot, "n_boot")
+  .check_seed(seed)
+  .check_prob(conf_level, "conf_level")
 
   sample_size <- .sample_size(fit)
   .warn_sample_size(sample_size, "bootstrap_cox")

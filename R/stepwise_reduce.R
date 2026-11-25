@@ -138,8 +138,8 @@ stepwise_reduce <- function(
 
   if (!is_cox && !is_glm)
     stop("`fit` must be a binomial glm or a coxph object.")
-  if (alpha <= 0 || alpha >= 1)
-    stop("`alpha` must be strictly between 0 and 1.")
+  .check_prob(alpha, "alpha")
+  max_iterations <- .check_count(max_iterations, "max_iterations")
   if (!is.null(keep_vars)) {
     if (!is.character(keep_vars))
       stop("`keep_vars` must be a character vector or NULL.")

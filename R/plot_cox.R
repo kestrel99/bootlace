@@ -202,6 +202,7 @@ plot_cox_survival <- function(
     stop("`newdata` must be a non-empty data frame.")
 
   fun <- match.arg(fun)
+  .check_range(times, "times", lower = 0)
 
   # ---- Baseline cumulative hazard --------------------------------------------
   H0 <- survival::basehaz(bc$fit, centered = FALSE)

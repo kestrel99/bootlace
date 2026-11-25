@@ -85,6 +85,19 @@ vpc_cox <- function(
   overlay = FALSE
 ) {
   censoring <- match.arg(censoring)
+  n_sim  <- .check_count(n_sim, "n_sim")
+  n_grid <- .check_count(n_grid, "n_grid", min = 2L)
+  .check_range(pi_probs, "pi_probs", lower = 0, upper = 1)
+  if (length(pi_probs) != 2L || !(0 < pi_probs[1] && pi_probs[1] < pi_probs[2] &&
+                                  pi_probs[2] < 1)) {
+    stop("`pi_probs` must be two increasing numbers strictly between 0 and 1",
+         call. = FALSE)
+  }
+  if (!is.null(t_max) && (length(t_max) != 1L || is.na(t_max) ||
+                          !is.finite(t_max) || t_max <= 0)) {
+    stop("`t_max` must be a single positive number or NULL", call. = FALSE)
+  }
+  .check_seed(seed)
   if (!inherits(fit, "coxph")) {
     stop("`fit` must be a coxph() fit", call. = FALSE)
   }

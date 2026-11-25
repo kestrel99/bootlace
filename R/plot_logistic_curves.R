@@ -147,6 +147,7 @@ plot_logistic_curves <- function(
   combine = FALSE
 ) {
   # ---- Input validation ------------------------------------------------------
+  n_grid <- .check_count(n_grid, "n_grid", min = 2L)
   if (!inherits(bl, "boot_logistic")) {
     stop(
       "`bl` must be a boot_logistic object returned by bootstrap_logistic()."

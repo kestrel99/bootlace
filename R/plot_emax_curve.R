@@ -93,6 +93,7 @@ plot_emax_curve <- function(
 ) {
   if (!inherits(be, "boot_emax"))
     stop("`be` must be a boot_emax object returned by bootstrap_emax().")
+  n_grid <- .check_count(n_grid, "n_grid", min = 2L)
 
   if (!is.null(obs_groups)) {
     if (

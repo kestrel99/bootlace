@@ -65,8 +65,9 @@ bootstrap_emax <- function(
 ) {
   if (!inherits(fit, "logistic_emax"))
     stop("`fit` must be a fitted logistic_emax object.")
-  if (conf_level <= 0 || conf_level >= 1)
-    stop("`conf_level` must be strictly between 0 and 1.")
+  n_boot <- .check_count(n_boot, "n_boot")
+  .check_seed(seed)
+  .check_prob(conf_level, "conf_level")
 
   n         <- length(fit$x)
   n_par     <- fit$n_par

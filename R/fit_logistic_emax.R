@@ -560,6 +560,13 @@ predict.logistic_emax <- function(
   newdata_provided <- !is.null(newdata)
   x_new            <- if (newdata_provided) as.numeric(newdata) else object$x
   n_new            <- length(x_new)
+  # Same exposure scale as fit_logistic_emax(): finite and non-negative (NA
+  # gives NA predictions).
+  if (any(!is.finite(x_new[!is.na(x_new)])))
+    stop("`newdata` must be finite.", call. = FALSE)
+  if (any(x_new < 0, na.rm = TRUE))
+    stop("`newdata` must be non-negative.", call. = FALSE)
+  .check_prob(level, "level")
 
   # ---- Resolve covariate matrices at prediction points -----------------------
   expand_new_cov <- function(new_z, mm_info) {

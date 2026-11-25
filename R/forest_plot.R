@@ -126,6 +126,9 @@ fp_data <- function(
   digits   = 3L,
   ci_width = 34L
 ) {
+  .check_prob(ci_level, "ci_level")
+  .check_range(percs, "percs", lower = 0, upper = 1)
+
   # exp(coef) is a hazard ratio only for Cox models and an odds ratio only for
   # a logit link; label nothing else as either.
   is_cox   <- inherits(model, "coxph")

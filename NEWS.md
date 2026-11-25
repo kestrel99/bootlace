@@ -1,5 +1,7 @@
 # bootlace 0.1.0
 
+* Argument validation: bootstrap, simulation and grid counts must be whole numbers; confidence levels, `alpha` and percentiles must lie in (0, 1); `vpc_cox()`'s `pi_probs` must be increasing and `t_max` positive; seeds must be single numbers; `times` and ROC `thresholds` must be finite and in range; `predict.logistic_emax()` rejects negative or infinite exposures (no issue).
+
 * `fp_data()` and `fp_plot()` label interaction rows as ratios of ORs or HRs, and give header rows a joint Wald test over all of the term's coefficients (shown with its df when above 1) instead of the first contrast's p-value. A new `p_df` column records the test's df (no issue).
 
 * `plot_cox_survival()` bands now use each bootstrap replicate's own baseline cumulative hazard (stored by `bootstrap_cox()` as `boot_basehaz`). Holding the baseline fixed made the bands far too wide (for `lung`, age 60, one year: 0.02 to 0.73, versus 0.27 to 0.44 now and 0.28 to 0.45 from `survfit()`). Survival is now 1 before the first event time instead of taking the first step's value (no issue).
