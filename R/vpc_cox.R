@@ -20,8 +20,11 @@
 #'
 #' @param fit A [survival::coxph()] fit to right-censored data, without
 #'   `strata()` terms.
-#' @param data The data `fit` was fitted to. Rows the fit dropped for missing
-#'   values are dropped here too.
+#' @param data The data `fit` was fitted to, in the same row order. Rows the
+#'   fit dropped for missing values are dropped here too. The remaining rows
+#'   must reproduce the fit's response and linear predictor row by row;
+#'   reordered or altered data are an error, since the simulated and
+#'   observed curves would otherwise pair the wrong records.
 #' @param by Name of a discrete column in `data` to stratify the VPC by (e.g.
 #'   an exposure quartile). `NULL` for a single panel.
 #' @param n_sim Number of simulated replicates.
@@ -32,8 +35,10 @@
 #' @param n_grid Number of times the simulated curves are evaluated at.
 #' @param seed Random seed, or `NULL` to leave the RNG state alone.
 #' @param bootstrap Refit the model to a bootstrap sample in each replicate.
-#'   Replicates whose refit or prediction fails (e.g. a sample missing a rare
-#'   factor level) are dropped with a warning.
+#'   When the fit has a subject or cluster identifier (`id =`, `cluster =` or
+#'   a `cluster()` term), whole clusters are resampled. Replicates whose refit
+#'   or prediction fails (e.g. a sample missing a rare factor level) are
+#'   dropped with a warning.
 #' @param censoring `"admin"` or `"reverseKM"`; see the Censoring section.
 #' @param overlay Draw the `by` groups on one set of axes, one colour per
 #'   group, instead of one panel per group. Up to 8 groups.
@@ -101,6 +106,15 @@ vpc_cox <- function(
   if (nrow(data) != nrow(fit$y)) {
     stop("`data` doesn't match the data `fit` was fitted to", call. = FALSE)
   }
+  # Predictions follow the order of `data` while the observed times follow the
+  # fit's, so the rows must be the same records in the same order.
+  if (!.vpc_data_matches(fit, data)) {
+    stop(
+      "`data` must hold the rows `fit` was fitted to, in the same order and ",
+      "with the same values",
+      call. = FALSE
+    )
+  }
   if (!is.null(by) && !by %in% names(data)) {
     stop("`data` has no column ", by, call. = FALSE)
   }
@@ -141,12 +155,15 @@ vpc_cox <- function(
 
   grid <- seq(0, t_max, length.out = n_grid)
 
+  # Bootstrap whole subjects/clusters when the fit has an id or cluster.
+  boot_design <- list(n = n, cluster = .cox_design(fit)$cluster)
+
   sim_once <- function() {
     # Uncentred baseline cumulative hazard and linear predictor, so that
     # S_i(t) = exp(-H0(t) * risk_i), for the original subjects.
     f <- fit
     if (bootstrap) {
-      boot <- data[sample.int(n, replace = TRUE), , drop = FALSE]
+      boot <- data[.resample_rows(boot_design), , drop = FALSE]
       # model = TRUE keeps the model frame; without it predict() can
       # re-evaluate `data = boot` in the formula's environment and not find it
       # (x = TRUE alone isn't enough, e.g. when the fit has weights).
@@ -246,6 +263,29 @@ vpc_cox <- function(
       overlay
     )
   )
+}
+
+# TRUE when `data` (already without the rows the fit dropped) reproduces the
+# fit's response and linear predictor row by row, i.e. it holds the fitted
+# records in the fitted order.
+.vpc_data_matches <- function(fit, data) {
+  # Evaluate the Surv() response directly: model.frame(fit, data = data) looks
+  # `data` up in the formula's environment and can find utils::data instead.
+  tt <- stats::terms(fit)
+  y_data <- tryCatch(
+    eval(attr(tt, "variables")[[2L]], data, environment(tt)),
+    error = function(e) NULL
+  )
+  if (is.null(y_data) || NROW(y_data) != NROW(fit$y)) return(FALSE)
+  same_y <- isTRUE(all.equal(
+    unclass(y_data), unclass(fit$y), check.attributes = FALSE
+  ))
+  lp <- tryCatch(
+    stats::predict(fit, newdata = data, type = "lp"),
+    error = function(e) NULL
+  )
+  same_y && !is.null(lp) &&
+    isTRUE(all.equal(unname(lp), unname(fit$linear.predictors)))
 }
 
 .zph_subtitle <- function(zph, by) {

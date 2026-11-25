@@ -124,3 +124,32 @@ test_that("vpc_cox() rejects unsupported fits and inputs", {
     vpc_cox(fit, lung, by = "many", overlay = TRUE)
   })
 })
+
+# ---- SCIENTIFIC_REVIEW.md finding 5: data must match the fitted records -------
+
+test_that("vpc_cox() rejects data in a different order from the fit", {
+  d   <- lung_df()
+  fit <- lung_fit(d)
+  set.seed(1)
+  shuffled <- d[sample(nrow(d)), ]
+  expect_error(vpc_cox(fit, shuffled, n_sim = 5, n_grid = 10), "same order")
+})
+
+test_that("vpc_cox() rejects data whose covariates differ from the fit's", {
+  d   <- lung_df()
+  fit <- lung_fit(d)
+  d$age <- d$age + 1
+  expect_error(vpc_cox(fit, d, n_sim = 5, n_grid = 10), "same order")
+})
+
+test_that("vpc_cox() bootstraps whole clusters when the fit has one", {
+  d   <- lung_df()
+  d   <- d[!is.na(d$inst), ]
+  fit <- survival::coxph(
+    survival::Surv(time, status) ~ age + sex + cluster(inst), data = d
+  )
+  vpc <- quiet_sample_size(
+    vpc_cox(fit, d, n_sim = 5, n_grid = 10, seed = 1, bootstrap = TRUE)
+  )
+  expect_s3_class(vpc$plot, "ggplot")
+})

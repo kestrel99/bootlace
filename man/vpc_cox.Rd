@@ -22,8 +22,11 @@ vpc_cox(
 \item{fit}{A \code{\link[survival:coxph]{survival::coxph()}} fit to right-censored data, without
 \code{strata()} terms.}
 
-\item{data}{The data \code{fit} was fitted to. Rows the fit dropped for missing
-values are dropped here too.}
+\item{data}{The data \code{fit} was fitted to, in the same row order. Rows the
+fit dropped for missing values are dropped here too. The remaining rows
+must reproduce the fit's response and linear predictor row by row;
+reordered or altered data are an error, since the simulated and
+observed curves would otherwise pair the wrong records.}
 
 \item{by}{Name of a discrete column in \code{data} to stratify the VPC by (e.g.
 an exposure quartile). \code{NULL} for a single panel.}
@@ -41,8 +44,10 @@ to the last observed time. If earlier, the observed data are censored at
 \item{seed}{Random seed, or \code{NULL} to leave the RNG state alone.}
 
 \item{bootstrap}{Refit the model to a bootstrap sample in each replicate.
-Replicates whose refit or prediction fails (e.g. a sample missing a rare
-factor level) are dropped with a warning.}
+When the fit has a subject or cluster identifier (\verb{id =}, \verb{cluster =} or
+a \code{cluster()} term), whole clusters are resampled. Replicates whose refit
+or prediction fails (e.g. a sample missing a rare factor level) are
+dropped with a warning.}
 
 \item{censoring}{\code{"admin"} or \code{"reverseKM"}; see the Censoring section.}
 
