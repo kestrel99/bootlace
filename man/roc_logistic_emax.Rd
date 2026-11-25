@@ -26,8 +26,12 @@ roc_logistic_emax(
 Defaults to \code{names(object)}; unnamed models are labelled \code{"Model 1"},
 \code{"Model 2"}, etc.}
 
-\item{thresholds}{Numeric vector of classification thresholds. When \code{NULL}
-(default), 501 evenly spaced values from 1 to 0 are used.}
+\item{thresholds}{Optional numeric vector of classification thresholds at
+which to draw the curve. When \code{NULL} (default), the curve is drawn at
+every observed fitted probability. Thresholds affect the display only:
+the AUC (the exact empirical AUC, with tied scores counted as one half)
+and the Youden-optimal threshold always use every observed fitted
+probability.}
 
 \item{ci}{Logical; if \code{TRUE} (default) a 95\% Hanley-McNeil confidence
 interval is appended to each AUC summary.}
@@ -53,9 +57,9 @@ Defaults to the ggplot2 discrete colour scale.}
 An S3 object of class \code{"roc_logistic_emax"}, a named list with:
 \describe{
 \item{\code{plot}}{A \code{ggplot} object.}
-\item{\code{roc_list}}{Named list of ROC data frames (one per model), each
-with columns \code{threshold}, \code{sensitivity}, \code{specificity}, \code{fpr}, and
-\code{youden}.}
+\item{\code{roc_list}}{Named list of ROC data frames (one per model), as
+drawn, each with columns \code{threshold}, \code{sensitivity}, \code{specificity},
+\code{fpr}, and \code{youden}.}
 \item{\code{roc_df}}{Alias for \code{roc_list[[1]]}; retained for single-model
 backward compatibility.}
 \item{\code{auc}}{Named numeric vector of AUC values.}

@@ -22,15 +22,24 @@ roc_logistic(
 \arguments{
 \item{models}{A named list of one or more fitted model objects.}
 
-\item{outcome}{Numeric binary (0/1) vector of observed outcomes, the same
-length as the fitted values returned by each model.}
+\item{outcome}{Numeric binary (0/1) vector of observed outcomes, in the
+order of the data the models were fitted to. It may be the same length
+as each model's fitted values, or the full data column including rows a
+model dropped for missing values (these are removed using the model's
+\code{na.action}). When a model stores its own 0/1 response, \code{outcome} must
+match it, which guards against reordered data. Both outcome classes must
+be present.}
 
 \item{labels}{Optional character vector of display labels, one per model.
 Defaults to \code{names(models)}; unnamed models are labelled \code{"Model 1"},
 \code{"Model 2"}, etc.}
 
-\item{thresholds}{Numeric vector of classification thresholds. When \code{NULL}
-(default), 501 evenly spaced values from 1 to 0 are used.}
+\item{thresholds}{Optional numeric vector of classification thresholds at
+which to draw the curve. When \code{NULL} (default), the curve is drawn at
+every observed predicted probability. Thresholds affect the display
+only: the AUC (the exact empirical AUC, with tied scores counted as one
+half) and the Youden-optimal threshold always use every observed
+predicted probability.}
 
 \item{ci}{Logical; if \code{TRUE} (default) a 95\% Hanley-McNeil confidence
 interval is appended to each legend entry.}
@@ -57,9 +66,9 @@ Defaults to the ggplot2 discrete colour scale.}
 An S3 object of class \code{"roc_logistic"}, a named list with:
 \describe{
 \item{\code{plot}}{A \code{ggplot} object.}
-\item{\code{roc_list}}{Named list of ROC data frames (one per model), each
-with columns \code{threshold}, \code{sensitivity}, \code{specificity}, \code{fpr}, and
-\code{youden}.}
+\item{\code{roc_list}}{Named list of ROC data frames (one per model), as
+drawn, each with columns \code{threshold}, \code{sensitivity}, \code{specificity},
+\code{fpr}, and \code{youden}.}
 \item{\code{auc}}{Named numeric vector of AUC values.}
 \item{\code{best_threshold}}{Named list of single-row data frames for the
 Youden-optimal threshold of each model.}

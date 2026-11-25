@@ -15,8 +15,12 @@
 #' @param labels Optional character vector of display labels, one per model.
 #'   Defaults to `names(object)`; unnamed models are labelled `"Model 1"`,
 #'   `"Model 2"`, etc.
-#' @param thresholds Numeric vector of classification thresholds. When `NULL`
-#'   (default), 501 evenly spaced values from 1 to 0 are used.
+#' @param thresholds Optional numeric vector of classification thresholds at
+#'   which to draw the curve. When `NULL` (default), the curve is drawn at
+#'   every observed fitted probability. Thresholds affect the display only:
+#'   the AUC (the exact empirical AUC, with tied scores counted as one half)
+#'   and the Youden-optimal threshold always use every observed fitted
+#'   probability.
 #' @param ci Logical; if `TRUE` (default) a 95% Hanley-McNeil confidence
 #'   interval is appended to each AUC summary.
 #' @param ref_line Logical; if `TRUE` (default) a dashed diagonal chance line
@@ -33,9 +37,9 @@
 #' @return An S3 object of class `"roc_logistic_emax"`, a named list with:
 #'   \describe{
 #'     \item{`plot`}{A `ggplot` object.}
-#'     \item{`roc_list`}{Named list of ROC data frames (one per model), each
-#'       with columns `threshold`, `sensitivity`, `specificity`, `fpr`, and
-#'       `youden`.}
+#'     \item{`roc_list`}{Named list of ROC data frames (one per model), as
+#'       drawn, each with columns `threshold`, `sensitivity`, `specificity`,
+#'       `fpr`, and `youden`.}
 #'     \item{`roc_df`}{Alias for `roc_list[[1]]`; retained for single-model
 #'       backward compatibility.}
 #'     \item{`auc`}{Named numeric vector of AUC values.}
@@ -117,49 +121,10 @@ roc_logistic_emax <- function(
     }
   }
 
-  if (is.null(thresholds))
-    thresholds <- seq(1, 0, length.out = 501L)
-
   if (is.null(fill)) fill <- (n_models == 1L)
 
   if (!is.null(colors) && length(colors) < n_models)
     stop("`colors` must have at least ", n_models, " element(s).")
-
-  # ---- ROC helpers -----------------------------------------------------------
-  roc_for_model <- function(y_obs, y_pred) {
-    df <- do.call(rbind, lapply(thresholds, function(thr) {
-      pos <- y_pred >= thr
-      tp  <- sum( pos &  y_obs == 1)
-      fp  <- sum( pos &  y_obs == 0)
-      fn  <- sum(!pos &  y_obs == 1)
-      tn  <- sum(!pos &  y_obs == 0)
-      data.frame(
-        threshold   = thr,
-        sensitivity = if ((tp + fn) > 0) tp / (tp + fn) else NA_real_,
-        specificity = if ((tn + fp) > 0) tn / (tn + fp) else NA_real_
-      )
-    }))
-    df$fpr    <- 1 - df$specificity
-    df        <- df[order(df$fpr, df$sensitivity), ]
-    df$youden <- df$sensitivity + df$specificity - 1
-    df
-  }
-
-  trapz_auc <- function(df) {
-    idx <- order(df$fpr)
-    x   <- df$fpr[idx]
-    y   <- df$sensitivity[idx]
-    sum(diff(x) * (utils::head(y, -1) + utils::tail(y, -1)) / 2)
-  }
-
-  hm_ci <- function(auc, n1, n0) {
-    q1  <- auc / (2 - auc)
-    q2  <- 2 * auc^2 / (1 + auc)
-    num <- auc * (1 - auc) + (n1 - 1) * (q1 - auc^2) + (n0 - 1) * (q2 - auc^2)
-    se  <- sqrt(num / (n1 * n0))
-    z   <- stats::qnorm(0.975)
-    c(lo = pmax(0, auc - z * se), hi = pmin(1, auc + z * se))
-  }
 
   # ---- Compute ROC per model -------------------------------------------------
   roc_list      <- setNames(vector("list", n_models), labels)
@@ -171,16 +136,15 @@ roc_logistic_emax <- function(
     y_obs  <- models[[i]]$y
     y_pred <- models[[i]]$fitted.values
 
-    roc_df <- roc_for_model(y_obs, y_pred)
-    auc    <- trapz_auc(roc_df)
-    best   <- roc_df[which.max(roc_df$youden), ]
+    res <- .roc_summary(y_obs, y_pred, thresholds, labels[i])
+    auc <- res$auc
 
-    roc_list[[i]]  <- roc_df
+    roc_list[[i]]  <- res$curve
     auc_vec[i]     <- auc
-    best_list[[i]] <- best
+    best_list[[i]] <- res$best
 
     if (ci) {
-      cival <- hm_ci(auc, sum(y_obs == 1), sum(y_obs == 0))
+      cival <- .roc_hm_ci(auc, res$n1, res$n0)
       legend_labels[i] <- sprintf(
         "%s: AUC = %.3f (%.3f\u2013%.3f)",
         labels[i], auc, cival["lo"], cival["hi"]
