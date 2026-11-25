@@ -1,5 +1,11 @@
 # bootlace 0.1.0
 
+* Fixes from the second follow-up scientific review (no issue):
+  * `confint()` for Emax fits no longer fails when the profile is awkward (it could stop with "f() values at end points not of opposite sign"). The EC50 profile is computed exactly (a logistic GLM at each fixed EC50), other profiles use two starts, and every bracket is verified before root-finding.
+  * BCa intervals are no longer reversed when the acceleration adjustment is invalid (e.g. at very high confidence levels): the percentile interval is used instead and labelled as such in `summary.boot_emax()` and `plot_emax_curve()`.
+  * `fit_logistic_emax()` retries fits that stop short of the optimum, then tells a diverging Emax/EC50 ridge (`bootlace_emax_ridge_warning`; the maximum is at EC50 -> Inf) from an optimisation failure (`bootlace_emax_stopped_warning`). `bootstrap_emax()` keeps ridge replicates and drops optimisation failures; jackknife refits are judged the same way instead of having their warnings suppressed.
+  * `fp_data()` / `fp_plot()` build every row as a combination of the fitted coefficients, so interaction rows (and main effects in models with interactions) are the same under any contrast coding; terms with no estimable coefficient show "not estimable" instead of failing.
+
 * Fixes from the follow-up scientific review (no issue):
   * `plot_cox_survival(fun = "cumhaz")` returned inverted confidence limits; bounds are now computed on the requested scale.
   * `fp_data()` / `fp_plot()` work with non-treatment contrasts (e.g. `contr.sum`): terms are mapped to their fitted coefficients, and level rows are level-vs-reference comparisons built from the fitted contrasts.

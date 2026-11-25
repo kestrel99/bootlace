@@ -590,40 +590,6 @@ test_that(".fp_fmt_p formats moderate p to 3 decimal places", {
 })
 
 
-# ── .fp_int_coefs internal helper ────────────────────────────────────────────
-
-test_that(".fp_int_coefs finds continuous x continuous interaction", {
-  coef_names <- c("(Intercept)", "age", "bmi", "age:bmi")
-  result <- bootlace:::.fp_int_coefs("age:bmi", coef_names)
-  expect_equal(result, "age:bmi")
-})
-
-test_that(".fp_int_coefs finds continuous x factor interaction (factor suffix)", {
-  coef_names <- c("(Intercept)", "age", "sexM", "age:sexM")
-  result <- bootlace:::.fp_int_coefs("age:sex", coef_names)
-  expect_equal(result, "age:sexM")
-})
-
-test_that(".fp_int_coefs handles factor-first coefficient names", {
-  # Some R versions / formula orderings produce "sexM:age" not "age:sexM"
-  coef_names <- c("(Intercept)", "age", "sexM", "sexM:age")
-  result <- bootlace:::.fp_int_coefs("age:sex", coef_names)
-  expect_equal(result, "sexM:age")
-})
-
-test_that(".fp_int_coefs returns character(0) when no match", {
-  coef_names <- c("(Intercept)", "age", "bmi")
-  result <- bootlace:::.fp_int_coefs("age:bmi", coef_names)
-  expect_equal(result, character(0L))
-})
-
-test_that(".fp_int_coefs finds multiple levels for multi-level factor", {
-  coef_names <- c("(Intercept)", "age", "grpB", "grpC",
-                  "age:grpB", "age:grpC")
-  result <- bootlace:::.fp_int_coefs("age:grp", coef_names)
-  expect_setequal(result, c("age:grpB", "age:grpC"))
-})
-
 # ---- SCIENTIFIC_REVIEW.md finding 4: only label true OR / HR estimates --------
 
 test_that("fp_data() rejects models whose exp(coef) isn't an OR or HR", {
@@ -701,4 +667,43 @@ test_that("Cox factor rows are the same under sum and treatment contrasts", {
   ps <- fp_data(fit_s, d)
   expect_equal(ps$pval, pt$pval)
   expect_equal(ps$est,  pt$est)
+})
+
+# ---- Follow-up review round 2: interactions under sum contrasts -------------------
+
+test_that("numeric x factor interaction rows don't depend on the contrast coding", {
+  fit_t <- glm(y ~ score * grp, data = FAC3_DF, family = binomial)
+  fit_s <- glm(y ~ score * grp, data = FAC3_DF, family = binomial,
+               contrasts = list(grp = "contr.sum"))
+  pt <- fp_data(fit_t, FAC3_DF)
+  ps <- fp_data(fit_s, FAC3_DF)
+  expect_equal(ps$est, pt$est)
+  expect_equal(ps$pval, pt$pval)
+  expect_equal(ps$Predictor, pt$Predictor)
+  # B vs A ratio of ORs is exp() of the treatment-coded interaction coefficient
+  row <- ps[grepl("^  B", ps$Predictor) & ps$group == 3, ]
+  expect_equal(row$est, unname(exp(coef(fit_t)[["score:grpB"]])))
+})
+
+test_that("factor x factor interaction rows don't depend on the contrast coding", {
+  d <- FAC3_DF
+  set.seed(4)
+  d$sex <- factor(sample(c("F", "M"), nrow(d), replace = TRUE))
+  fit_t <- glm(y ~ grp * sex, data = d, family = binomial)
+  fit_s <- glm(y ~ grp * sex, data = d, family = binomial,
+               contrasts = list(grp = "contr.sum", sex = "contr.sum"))
+  pt <- fp_data(fit_t, d)
+  ps <- fp_data(fit_s, d)
+  expect_equal(ps$est, pt$est)
+  expect_equal(ps$pval, pt$pval)
+})
+
+test_that("a fully aliased factor is reported as not estimable, not an error", {
+  d <- FAC3_DF
+  d$grp2 <- d$grp                                # aliased with grp
+  fit <- glm(y ~ score + grp + grp2, data = d, family = binomial)
+  pd  <- fp_data(fit, d)
+  hdr <- pd[pd$is_header & pd$Predictor == "grp2", ]
+  expect_true(is.na(hdr$pval))
+  expect_equal(hdr[["P-value"]], "not estimable")
 })

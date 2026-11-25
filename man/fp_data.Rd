@@ -71,11 +71,22 @@ per factor level present in the model.  The exponentiated coefficient of an
 interaction is a ratio of odds ratios (or of hazard ratios), not an OR/HR
 itself, so these rows are labelled "(ratio of ORs)" or "(ratio of HRs)".
 
-Header-row p-values test the whole term: a joint Wald test that all its
-coefficients are zero. For a factor with more than two levels, or a factor
-interaction with several contrasts, the P-value column shows the test's
-degrees of freedom, e.g. \verb{0.023 (2 df)}. Single-coefficient terms get the
-ordinary Wald test.
+Every displayed estimate is a linear combination of the fitted
+coefficients built from the model's own contrasts, so the table is the
+same whatever contrast coding was used (e.g. \code{contr.treatment} or
+\code{contr.sum}). Factor rows compare each level with the first (reference)
+level. When a term is part of an interaction, its rows are its effect at
+the reference level of each factor it interacts with (and at 0 for an
+interacting numeric variable), which is what treatment coding reports.
+Factor-interaction rows are ratios of ORs/HRs for each combination of
+non-reference levels.
+
+Header-row p-values test the whole term: a joint Wald test that all of
+those comparisons are zero. For a factor with more than two levels, or a
+factor interaction with several contrasts, the P-value column shows the
+test's degrees of freedom, e.g. \verb{0.023 (2 df)}. Single-coefficient terms
+get the ordinary Wald test. A term with no estimable coefficient (fully
+aliased) shows "not estimable" and no level rows.
 }
 \examples{
 if (requireNamespace("survival", quietly = TRUE)) {

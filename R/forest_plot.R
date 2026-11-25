@@ -13,34 +13,6 @@
          ifelse(x < 0.001, "<0.001", sprintf("%.3f", x)))
 }
 
-# For an interaction term, find all model coefficients that belong to it.
-#
-# Matches by splitting both the term label and each coefficient name on ":"
-# and checking that every component of the term label is a prefix of some
-# component of the coefficient name.  This handles both "age:sexMale"
-# (numeric first) and "sexMale:age" (factor first) layouts.
-.fp_int_coefs <- function(term, coef_names) {
-  vars <- strsplit(term, ":", fixed = TRUE)[[1L]]
-  coef_names[vapply(coef_names, function(cn) {
-    parts <- strsplit(cn, ":", fixed = TRUE)[[1L]]
-    length(parts) == length(vars) &&
-      all(vapply(vars, function(v) any(startsWith(parts, v)), logical(1L)))
-  }, logical(1L))]
-}
-
-# From an interaction coefficient name (e.g. "age:sexMale"), derive a short
-# display label by stripping the matched variable name from each component,
-# returning only the non-trivial suffixes (e.g. "Male").
-.fp_int_label <- function(cn, vars) {
-  parts <- strsplit(cn, ":", fixed = TRUE)[[1L]]
-  stripped <- vapply(parts, function(p) {
-    match_var <- vars[startsWith(p, vars)]
-    if (length(match_var)) sub(paste0("^", match_var[[1L]]), "", p) else p
-  }, character(1L))
-  paste(stripped[nzchar(stripped)], collapse = ":")
-}
-
-
 # fp_data ----------------------------------------------------------------------
 
 #' Build a tidy data frame for a forest plot
@@ -65,11 +37,22 @@
 #' interaction is a ratio of odds ratios (or of hazard ratios), not an OR/HR
 #' itself, so these rows are labelled "(ratio of ORs)" or "(ratio of HRs)".
 #'
-#' Header-row p-values test the whole term: a joint Wald test that all its
-#' coefficients are zero. For a factor with more than two levels, or a factor
-#' interaction with several contrasts, the P-value column shows the test's
-#' degrees of freedom, e.g. `0.023 (2 df)`. Single-coefficient terms get the
-#' ordinary Wald test.
+#' Every displayed estimate is a linear combination of the fitted
+#' coefficients built from the model's own contrasts, so the table is the
+#' same whatever contrast coding was used (e.g. `contr.treatment` or
+#' `contr.sum`). Factor rows compare each level with the first (reference)
+#' level. When a term is part of an interaction, its rows are its effect at
+#' the reference level of each factor it interacts with (and at 0 for an
+#' interacting numeric variable), which is what treatment coding reports.
+#' Factor-interaction rows are ratios of ORs/HRs for each combination of
+#' non-reference levels.
+#'
+#' Header-row p-values test the whole term: a joint Wald test that all of
+#' those comparisons are zero. For a factor with more than two levels, or a
+#' factor interaction with several contrasts, the P-value column shows the
+#' test's degrees of freedom, e.g. `0.023 (2 df)`. Single-coefficient terms
+#' get the ordinary Wald test. A term with no estimable coefficient (fully
+#' aliased) shows "not estimable" and no level rows.
 #'
 #' @param model   A fitted `coxph` object, or a `glm` with a binomial (or
 #'   quasibinomial) family and logit link. Other models are rejected, because
@@ -182,187 +165,115 @@ fp_data <- function(
   }
   .ilog <- function(v) !is.null(log_vars) && v %in% log_vars
 
-  # Wald test that all coefficients in `cn` are zero (joint for k > 1).
-  .wald <- function(cn) {
-    cn <- cn[cn %in% coef_names & !is.na(coefs[cn])]
-    b  <- coefs[cn]
-    V  <- vcov_mat[cn, cn, drop = FALSE]
-    w  <- drop(crossprod(b, solve(V, b)))
-    list(p = stats::pchisq(w, df = length(cn), lower.tail = FALSE),
-         df = length(cn))
-  }
-  # Fitted coefficients of each term, whatever the contrast coding.
+  # Every displayed effect is an explicit linear combination L'b of the
+  # fitted coefficients, built from the fitted contrasts (see
+  # .fp_effect_L()), so the table doesn't depend on the contrast coding.
+  # Effects of a term are taken at the reference level of any factor it
+  # interacts with (and at 0 for interacting numeric variables), which is
+  # what treatment coding reports.
   term_cols <- .fp_term_cols(model)
+  info      <- .fp_design_info(model, terms_, term_cols)
+
+  # Estimate and SE of L'b; NA when L involves a non-estimable coefficient.
+  .lin <- function(L) {
+    if (is.null(L) || any(L != 0 & is.na(coefs))) return(c(NA_real_, NA_real_))
+    nz <- L != 0
+    c(sum(L[nz] * coefs[nz]),
+      sqrt(drop(crossprod(L[nz], vcov_mat[nz, nz, drop = FALSE] %*% L[nz]))))
+  }
+  # Joint Wald test of the rows of L (each a combination); NA (df 0) when not
+  # estimable.
+  .wald_L <- function(Ls) {
+    Ls <- Filter(function(L) !is.null(L) && !any(L != 0 & is.na(coefs)), Ls)
+    if (length(Ls) == 0L) return(list(p = NA_real_, df = 0L))
+    M  <- do.call(rbind, Ls)
+    nz <- colSums(M != 0) > 0
+    M  <- M[, nz, drop = FALSE]
+    est <- drop(M %*% coefs[nz])
+    V   <- M %*% vcov_mat[nz, nz, drop = FALSE] %*% t(M)
+    w   <- tryCatch(drop(crossprod(est, solve(V, est))), error = function(e) NA_real_)
+    if (!is.finite(w)) return(list(p = NA_real_, df = 0L))
+    list(p = stats::pchisq(w, df = nrow(M), lower.tail = FALSE), df = nrow(M))
+  }
 
   # exp() of an interaction coefficient is a ratio of ORs / HRs.
   ratio_lbl <- if (is_cox) " (ratio of HRs)" else " (ratio of ORs)"
+
+  .row <- function(Predictor, est = NA_real_, lci = NA_real_, uci = NA_real_,
+                   pval = NA_real_, p_df = NA_integer_, is_header = FALSE,
+                   is_reference = FALSE) {
+    data.frame(
+      Predictor = Predictor, est = est, lci = lci, uci = uci, pval = pval,
+      p_df = as.integer(p_df), is_header = is_header,
+      is_reference = is_reference, group = grp, stringsAsFactors = FALSE
+    )
+  }
+  .exp_row <- function(Predictor, es) {
+    .row(Predictor, est = exp(es[1]), lci = exp(es[1] - z_crit * es[2]),
+         uci = exp(es[1] + z_crit * es[2]))
+  }
 
   rows <- list()
   grp  <- 0L
 
   for (term in terms_) {
     grp <- grp + 1L
-    is_interaction <- grepl(":", term, fixed = TRUE)
-    col    <- if (!is_interaction) data[[term]] else NULL
-    is_cat <- !is_interaction && (is.factor(col) || is.character(col))
+    if (length(term_cols[[term]]) == 0L) next
+    vars_t <- info$vars[[term]]
+    facs   <- vars_t[vars_t %in% info$factors]
+    is_interaction <- length(vars_t) > 1L
 
-    if (is_interaction) {
-      # -- Interaction --------------------------------------------------------
-      int_coefs <- term_cols[[term]]
-      if (length(int_coefs) == 0L) next
-      vars_i <- strsplit(term, ":", fixed = TRUE)[[1L]]
-
-      # A factor interaction has a level suffix after stripping variable names
-      # (e.g. "age:sexM" -> suffix "M").  Use this to distinguish from a pure
-      # numeric interaction (e.g. "age:bmi" -> suffix ""), which has no levels.
-      has_factor_lvl <- any(vapply(int_coefs, function(cn) {
-        nzchar(.fp_int_label(cn, vars_i))
-      }, logical(1L)))
-
-      if (!has_factor_lvl) {
-        # Single row, no header (continuous x continuous)
-        b <- coefs[[int_coefs]]
-        s <- sqrt(vcov_mat[[int_coefs, int_coefs]])
-        rows <- c(rows, list(data.frame(
-          Predictor    = paste0(.lbl(term), ratio_lbl),
-          est          = exp(b),
-          lci          = exp(b - z_crit * s),
-          uci          = exp(b + z_crit * s),
-          pval         = 2 * stats::pnorm(-abs(b / s)),
-          p_df         = 1L,
-          is_header    = FALSE,
-          is_reference = FALSE,
-          group        = grp,
-          stringsAsFactors = FALSE
+    if (length(facs) > 0L) {
+      # -- Factor main effect or interaction involving a factor ---------------
+      cmps <- .fp_comparisons(info, facs)
+      Ls   <- lapply(cmps$idx, function(ix) .fp_effect_L(info, term, ix, coef_names))
+      wt   <- .wald_L(Ls)
+      hdr  <- if (is_interaction) paste0(.lbl(term), ratio_lbl) else .lbl(term)
+      rows <- c(rows, list(.row(hdr, pval = wt$p, p_df = wt$df,
+                                is_header = TRUE)))
+      if (!is_interaction)
+        rows <- c(rows, list(.row(
+          paste0("  ", info$levels[[term]][[1L]], " (reference)"),
+          is_reference = TRUE
         )))
-      } else {
-        # Header + per-level rows (factor involved, one or more non-ref levels)
-        wt <- .wald(int_coefs)
-        rows <- c(rows, list(data.frame(
-          Predictor    = paste0(.lbl(term), ratio_lbl),
-          est          = NA_real_,
-          lci          = NA_real_,
-          uci          = NA_real_,
-          pval         = wt$p,
-          p_df         = wt$df,
-          is_header    = TRUE,
-          is_reference = FALSE,
-          group        = grp,
-          stringsAsFactors = FALSE
-        )))
-        for (cn in int_coefs) {
-          b   <- coefs[[cn]]
-          s   <- sqrt(vcov_mat[[cn, cn]])
-          lbl <- .fp_int_label(cn, vars_i)
-          rows <- c(rows, list(data.frame(
-            Predictor    = paste0("  ", if (nzchar(lbl)) lbl else cn),
-            est          = exp(b),
-            lci          = exp(b - z_crit * s),
-            uci          = exp(b + z_crit * s),
-            pval         = NA_real_,
-            p_df         = NA_integer_,
-            is_header    = FALSE,
-            is_reference = FALSE,
-            group        = grp,
-            stringsAsFactors = FALSE
-          )))
-        }
+      for (k in seq_along(Ls)) {
+        es <- .lin(Ls[[k]])
+        if (is.na(es[1])) next
+        rows <- c(rows, list(.exp_row(paste0("  ", cmps$label[[k]]), es)))
       }
 
-    } else if (is_cat) {
-      # -- Categorical ------------------------------------------------------
-      levs   <- model$xlevels[[term]]
-      if (is.null(levs)) levs <- levels(factor(col))
-      cols_t <- term_cols[[term]]
-      # Joint Wald test over all of the factor's contrasts, not just the first
-      wt_hdr <- .wald(cols_t)
-
-      rows <- c(rows, list(data.frame(
-        Predictor    = .lbl(term),
-        est          = NA_real_,
-        lci          = NA_real_,
-        uci          = NA_real_,
-        pval         = wt_hdr$p,
-        p_df         = wt_hdr$df,
-        is_header    = TRUE,
-        is_reference = FALSE,
-        group        = grp,
-        stringsAsFactors = FALSE
+    } else if (is_interaction) {
+      # -- Numeric x numeric interaction: one row -----------------------------
+      es <- .lin(.fp_effect_L(info, term, list(), coef_names))
+      rows <- c(rows, list(.row(
+        paste0(.lbl(term), ratio_lbl),
+        est = exp(es[1]), lci = exp(es[1] - z_crit * es[2]),
+        uci = exp(es[1] + z_crit * es[2]),
+        pval = 2 * stats::pnorm(-abs(es[1] / es[2])), p_df = 1L
       )))
-      rows <- c(rows, list(data.frame(
-        Predictor    = paste0("  ", levs[[1L]], " (reference)"),
-        est          = NA_real_,
-        lci          = NA_real_,
-        uci          = NA_real_,
-        pval         = NA_real_,
-        p_df         = NA_integer_,
-        is_header    = FALSE,
-        is_reference = TRUE,
-        group        = grp,
-        stringsAsFactors = FALSE
-      )))
-      # Each level vs the reference, from the fitted contrast matrix (rows =
-      # levels): for treatment coding this is just the level's coefficient.
-      C_t <- .fp_contrast_matrix(model, term, levs)
-      for (i in seq(2L, length(levs))) {
-        L  <- C_t[i, ] - C_t[1L, ]
-        b  <- sum(L * coefs[cols_t])
-        if (is.na(b)) next
-        s  <- sqrt(drop(crossprod(L, vcov_mat[cols_t, cols_t, drop = FALSE] %*% L)))
-        rows <- c(rows, list(data.frame(
-          Predictor    = paste0("  ", levs[[i]]),
-          est          = exp(b),
-          lci          = exp(b - z_crit * s),
-          uci          = exp(b + z_crit * s),
-          pval         = NA_real_,
-          p_df         = NA_integer_,
-          is_header    = FALSE,
-          is_reference = FALSE,
-          group        = grp,
-          stringsAsFactors = FALSE
-        )))
-      }
 
     } else {
-      # -- Continuous -------------------------------------------------------
-      if (!term %in% coef_names) next
-      b <- coefs[[term]]
-      s <- sqrt(vcov_mat[[term, term]])
-      p <- 2 * stats::pnorm(-abs(b / s))
-
-      rows <- c(rows, list(data.frame(
-        Predictor    = .lbl(term),
-        est          = NA_real_,
-        lci          = NA_real_,
-        uci          = NA_real_,
-        pval         = p,
-        p_df         = 1L,
-        is_header    = TRUE,
-        is_reference = FALSE,
-        group        = grp,
-        stringsAsFactors = FALSE
-      )))
-
+      # -- Continuous main effect: header + percentile rows -------------------
+      col <- data[[term]]
+      if (!is.numeric(col)) next     # e.g. a logical predictor: not supported
+      es  <- .lin(.fp_effect_L(info, term, list(), coef_names))
+      b   <- es[1]
+      s   <- es[2]
+      p   <- if (is.na(b)) NA_real_ else 2 * stats::pnorm(-abs(b / s))
+      rows <- c(rows, list(.row(.lbl(term), pval = p,
+                                p_df = if (is.na(b)) 0L else 1L,
+                                is_header = TRUE)))
+      if (is.na(b)) next
       med <- stats::median(col, na.rm = TRUE)
       for (perc in percs) {
         pv      <- stats::quantile(col, probs = perc, na.rm = TRUE)
         d       <- pv - med
-        bch     <- b * d
-        sch     <- s * abs(d)
         dv      <- if (.ilog(term)) exp(pv) else pv
         pct_lbl <- sprintf("%dth percentile", as.integer(perc * 100))
-        rows <- c(rows, list(data.frame(
-          Predictor    = paste0("  ", pct_lbl, " (", .fp_fmt(dv, digits), ")"),
-          est          = exp(bch),
-          lci          = exp(bch - z_crit * sch),
-          uci          = exp(bch + z_crit * sch),
-          pval         = NA_real_,
-          p_df         = NA_integer_,
-          is_header    = FALSE,
-          is_reference = abs(d) < 1e-10,
-          group        = grp,
-          stringsAsFactors = FALSE
-        )))
+        r <- .exp_row(paste0("  ", pct_lbl, " (", .fp_fmt(dv, digits), ")"),
+                      c(b * d, s * abs(d)))
+        r$is_reference <- abs(d) < 1e-10
+        rows <- c(rows, list(r))
       }
     }
   }
@@ -385,6 +296,9 @@ fp_data <- function(
     .fp_fmt_p(out$pval),
     ifelse(!is.na(out$p_df) & out$p_df > 1L, paste0(" (", out$p_df, " df)"), "")
   )
+  # Header tests with no estimable coefficient
+  not_est <- out$is_header & is.na(out$pval) & !is.na(out$p_df) & out$p_df == 0L
+  out[["P-value"]][not_est] <- "not estimable"
   out[[" "]]       <- strrep(" ", ci_width)
 
   out
@@ -571,4 +485,80 @@ fp_plot <- function(
   C <- if (is.character(ctr)) do.call(ctr, list(levs)) else as.matrix(ctr)
   rownames(C) <- levs
   C
+}
+
+
+# Design information for building effects: the variables of each term, which
+# are factors, their levels and fitted contrast matrices, and how each term's
+# columns are coded (fitted contrasts, or full indicators when a lower-order
+# term is missing).
+.fp_design_info <- function(model, terms_, term_cols) {
+  xlev  <- model$xlevels
+  vars  <- stats::setNames(lapply(terms_, function(t) strsplit(t, ":", fixed = TRUE)[[1L]]),
+                           terms_)
+  facs  <- names(xlev)
+  C     <- stats::setNames(lapply(facs, function(v) .fp_contrast_matrix(model, v, xlev[[v]])),
+                           facs)
+  levels <- stats::setNames(lapply(terms_, function(t) xlev[[t]]), terms_)
+  # Per term: for each factor in it, the coding matrix (rows = levels) whose
+  # columns match the term's fitted columns.
+  coding <- stats::setNames(lapply(terms_, function(t) {
+    fv <- vars[[t]][vars[[t]] %in% facs]
+    if (length(fv) == 0L) return(list())
+    n_cols <- length(term_cols[[t]])
+    fitted <- stats::setNames(lapply(fv, function(v) C[[v]]), fv)
+    if (prod(vapply(fitted, ncol, numeric(1L))) == n_cols) return(fitted)
+    indic <- stats::setNames(lapply(fv, function(v) {
+      k <- length(xlev[[v]])
+      m <- diag(k)
+      dimnames(m) <- list(xlev[[v]], xlev[[v]])
+      m
+    }), fv)
+    if (prod(vapply(indic, ncol, numeric(1L))) == n_cols) return(indic)
+    NULL
+  }), terms_)
+  list(vars = vars, factors = facs, levels = levels, xlevels = xlev,
+       coding = coding, term_cols = term_cols, terms = terms_)
+}
+
+# Non-reference level combinations of the factors `facs` (first varies
+# fastest, matching model-matrix column order), with display labels.
+.fp_comparisons <- function(info, facs) {
+  grid <- expand.grid(lapply(facs, function(v) seq.int(2L, length(info$xlevels[[v]]))),
+                      KEEP.OUT.ATTRS = FALSE)
+  names(grid) <- facs
+  idx <- lapply(seq_len(nrow(grid)), function(r) as.list(grid[r, , drop = FALSE]))
+  label <- vapply(idx, function(ix) {
+    paste(vapply(facs, function(v) info$xlevels[[v]][[ix[[v]]]], character(1L)),
+          collapse = ":")
+  }, character(1L))
+  list(idx = idx, label = label)
+}
+
+# Coefficient vector L (named by `coef_names`) for the effect of `term`:
+# level ix[[v]] vs the reference for each factor v of the term, per unit of
+# each numeric variable, evaluated at the reference level of every other
+# factor (and 0 for every other numeric variable) in higher-order terms that
+# contain it. NULL when a needed term's coding isn't recognised.
+.fp_effect_L <- function(info, term, ix, coef_names) {
+  L  <- stats::setNames(numeric(length(coef_names)), coef_names)
+  tv <- info$vars[[term]]
+  for (h in info$terms) {
+    hv <- info$vars[[h]]
+    if (!all(tv %in% hv)) next
+    extra <- setdiff(hv, tv)
+    if (any(!extra %in% info$factors)) next     # a numeric extra is set to 0
+    coding <- info$coding[[h]]
+    if (is.null(coding)) return(NULL)
+    vecs <- lapply(hv, function(v) {
+      if (!v %in% info$factors) return(1)
+      Cv <- coding[[v]]
+      if (v %in% tv) Cv[ix[[v]], ] - Cv[1L, ] else Cv[1L, ]
+    })
+    Lh <- Reduce(function(acc, v) kronecker(v, acc), vecs)
+    cols <- info$term_cols[[h]]
+    if (length(Lh) != length(cols)) return(NULL)
+    L[cols] <- L[cols] + Lh
+  }
+  L
 }
