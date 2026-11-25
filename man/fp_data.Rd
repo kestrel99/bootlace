@@ -44,7 +44,8 @@ Increase to widen the CI drawing area in \code{\link[=fp_plot]{fp_plot()}} (defa
 }
 \value{
 A data frame with one row per displayed entry containing:
-\code{Predictor}, \code{est}, \code{lci}, \code{uci}, \code{pval}, \code{is_header}, \code{is_reference},
+\code{Predictor}, \code{est}, \code{lci}, \code{uci}, \code{pval}, \code{p_df} (degrees of freedom of
+the test behind \code{pval}), \code{is_header}, \code{is_reference},
 \code{group}, the model-specific estimate column (\verb{OR (95\% CI)} or
 \verb{HR (95\% CI)}), \code{P-value}, and \code{" "} (spacer column).
 }
@@ -66,7 +67,15 @@ to the predictor's median in \code{data}.
 Interaction terms (those containing \code{":"}) are detected automatically.  A
 continuous x continuous interaction is shown as a single row.  An
 interaction involving a factor is shown as a header row with one child row
-per factor level present in the model.
+per factor level present in the model.  The exponentiated coefficient of an
+interaction is a ratio of odds ratios (or of hazard ratios), not an OR/HR
+itself, so these rows are labelled "(ratio of ORs)" or "(ratio of HRs)".
+
+Header-row p-values test the whole term: a joint Wald test that all its
+coefficients are zero. For a factor with more than two levels, or a factor
+interaction with several contrasts, the P-value column shows the test's
+degrees of freedom, e.g. \verb{0.023 (2 df)}. Single-coefficient terms get the
+ordinary Wald test.
 }
 \examples{
 if (requireNamespace("survival", quietly = TRUE)) {

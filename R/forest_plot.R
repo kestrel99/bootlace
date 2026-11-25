@@ -61,7 +61,15 @@
 #' Interaction terms (those containing `":"`) are detected automatically.  A
 #' continuous x continuous interaction is shown as a single row.  An
 #' interaction involving a factor is shown as a header row with one child row
-#' per factor level present in the model.
+#' per factor level present in the model.  The exponentiated coefficient of an
+#' interaction is a ratio of odds ratios (or of hazard ratios), not an OR/HR
+#' itself, so these rows are labelled "(ratio of ORs)" or "(ratio of HRs)".
+#'
+#' Header-row p-values test the whole term: a joint Wald test that all its
+#' coefficients are zero. For a factor with more than two levels, or a factor
+#' interaction with several contrasts, the P-value column shows the test's
+#' degrees of freedom, e.g. `0.023 (2 df)`. Single-coefficient terms get the
+#' ordinary Wald test.
 #'
 #' @param model   A fitted `coxph` object, or a `glm` with a binomial (or
 #'   quasibinomial) family and logit link. Other models are rejected, because
@@ -83,7 +91,8 @@
 #'   Increase to widen the CI drawing area in [fp_plot()] (default `34`).
 #'
 #' @return A data frame with one row per displayed entry containing:
-#'   `Predictor`, `est`, `lci`, `uci`, `pval`, `is_header`, `is_reference`,
+#'   `Predictor`, `est`, `lci`, `uci`, `pval`, `p_df` (degrees of freedom of
+#'   the test behind `pval`), `is_header`, `is_reference`,
 #'   `group`, the model-specific estimate column (`OR (95% CI)` or
 #'   `HR (95% CI)`), `P-value`, and `" "` (spacer column).
 #'
@@ -170,6 +179,18 @@ fp_data <- function(
   }
   .ilog <- function(v) !is.null(log_vars) && v %in% log_vars
 
+  # Wald test that all coefficients in `cn` are zero (joint for k > 1).
+  .wald <- function(cn) {
+    cn <- cn[cn %in% coef_names & !is.na(coefs[cn])]
+    b  <- coefs[cn]
+    V  <- vcov_mat[cn, cn, drop = FALSE]
+    w  <- drop(crossprod(b, solve(V, b)))
+    list(p = stats::pchisq(w, df = length(cn), lower.tail = FALSE),
+         df = length(cn))
+  }
+  # exp() of an interaction coefficient is a ratio of ORs / HRs.
+  ratio_lbl <- if (is_cox) " (ratio of HRs)" else " (ratio of ORs)"
+
   rows <- list()
   grp  <- 0L
 
@@ -197,11 +218,12 @@ fp_data <- function(
         b <- coefs[[int_coefs]]
         s <- sqrt(vcov_mat[[int_coefs, int_coefs]])
         rows <- c(rows, list(data.frame(
-          Predictor    = .lbl(term),
+          Predictor    = paste0(.lbl(term), ratio_lbl),
           est          = exp(b),
           lci          = exp(b - z_crit * s),
           uci          = exp(b + z_crit * s),
           pval         = 2 * stats::pnorm(-abs(b / s)),
+          p_df         = 1L,
           is_header    = FALSE,
           is_reference = FALSE,
           group        = grp,
@@ -209,14 +231,14 @@ fp_data <- function(
         )))
       } else {
         # Header + per-level rows (factor involved, one or more non-ref levels)
-        b1 <- coefs[[int_coefs[[1L]]]]
-        s1 <- sqrt(vcov_mat[[int_coefs[[1L]], int_coefs[[1L]]]])
+        wt <- .wald(int_coefs)
         rows <- c(rows, list(data.frame(
-          Predictor    = .lbl(term),
+          Predictor    = paste0(.lbl(term), ratio_lbl),
           est          = NA_real_,
           lci          = NA_real_,
           uci          = NA_real_,
-          pval         = 2 * stats::pnorm(-abs(b1 / s1)),
+          pval         = wt$p,
+          p_df         = wt$df,
           is_header    = TRUE,
           is_reference = FALSE,
           group        = grp,
@@ -232,6 +254,7 @@ fp_data <- function(
             lci          = exp(b - z_crit * s),
             uci          = exp(b + z_crit * s),
             pval         = NA_real_,
+            p_df         = NA_integer_,
             is_header    = FALSE,
             is_reference = FALSE,
             group        = grp,
@@ -243,17 +266,16 @@ fp_data <- function(
     } else if (is_cat) {
       # -- Categorical ------------------------------------------------------
       levs   <- levels(factor(col))
-      cn_hdr <- paste0(term, levs[[2L]])
-      b_hdr  <- coefs[[cn_hdr]]
-      se_hdr <- sqrt(vcov_mat[[cn_hdr, cn_hdr]])
-      p_hdr  <- 2 * stats::pnorm(-abs(b_hdr / se_hdr))
+      # Joint Wald test over all of the factor's contrasts, not just the first
+      wt_hdr <- .wald(paste0(term, levs[-1L]))
 
       rows <- c(rows, list(data.frame(
         Predictor    = .lbl(term),
         est          = NA_real_,
         lci          = NA_real_,
         uci          = NA_real_,
-        pval         = p_hdr,
+        pval         = wt_hdr$p,
+        p_df         = wt_hdr$df,
         is_header    = TRUE,
         is_reference = FALSE,
         group        = grp,
@@ -265,6 +287,7 @@ fp_data <- function(
         lci          = NA_real_,
         uci          = NA_real_,
         pval         = NA_real_,
+        p_df         = NA_integer_,
         is_header    = FALSE,
         is_reference = TRUE,
         group        = grp,
@@ -281,6 +304,7 @@ fp_data <- function(
           lci          = exp(b - z_crit * s),
           uci          = exp(b + z_crit * s),
           pval         = NA_real_,
+          p_df         = NA_integer_,
           is_header    = FALSE,
           is_reference = FALSE,
           group        = grp,
@@ -301,6 +325,7 @@ fp_data <- function(
         lci          = NA_real_,
         uci          = NA_real_,
         pval         = p,
+        p_df         = 1L,
         is_header    = TRUE,
         is_reference = FALSE,
         group        = grp,
@@ -321,6 +346,7 @@ fp_data <- function(
           lci          = exp(bch - z_crit * sch),
           uci          = exp(bch + z_crit * sch),
           pval         = NA_real_,
+          p_df         = NA_integer_,
           is_header    = FALSE,
           is_reference = abs(d) < 1e-10,
           group        = grp,
@@ -344,7 +370,10 @@ fp_data <- function(
   )
 
   out[[est_label]] <- ci_str
-  out[["P-value"]] <- .fp_fmt_p(out$pval)
+  out[["P-value"]] <- paste0(
+    .fp_fmt_p(out$pval),
+    ifelse(!is.na(out$p_df) & out$p_df > 1L, paste0(" (", out$p_df, " df)"), "")
+  )
   out[[" "]]       <- strrep(" ", ci_width)
 
   out

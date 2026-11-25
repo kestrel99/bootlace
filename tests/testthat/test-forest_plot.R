@@ -444,7 +444,7 @@ test_that("labels applies to interaction term header row", {
                 labels = c("age:sex" = "Age x Sex interaction"))
   int_idx <- which(attr(terms(INT_CF_FIT), "term.labels") == "age:sex")
   hdr     <- pd[pd$group == int_idx & pd$is_header, ]
-  expect_equal(hdr$Predictor, "Age x Sex interaction")
+  expect_equal(hdr$Predictor, "Age x Sex interaction (ratio of ORs)")
 })
 
 test_that("interaction in Cox model: header + level rows, HR column", {
@@ -638,4 +638,38 @@ test_that("fp_data() accepts logit binomial and quasibinomial fits", {
   expect_true("OR (95% CI)" %in% names(fp_data(LOG_FIT, d)))
   fit_q <- glm(y ~ age + bmi + sex, data = d, family = quasibinomial)
   expect_true("OR (95% CI)" %in% names(fp_data(fit_q, d)))
+})
+
+# ---- SCIENTIFIC_REVIEW.md follow-up: interaction and multi-level rows --------
+
+joint_wald_p <- function(fit, cn) {
+  b <- coef(fit)[cn]
+  V <- vcov(fit)[cn, cn, drop = FALSE]
+  pchisq(drop(t(b) %*% solve(V, b)), df = length(cn), lower.tail = FALSE)
+}
+
+test_that("a multi-level factor header carries the joint Wald test", {
+  hdr <- FAC_PD[FAC_PD$is_header & FAC_PD$Predictor == "grp", ]
+  expect_equal(hdr$pval, joint_wald_p(FAC_FIT, c("grpB", "grpC")))
+  expect_equal(hdr$p_df, 2L)
+  expect_match(hdr[["P-value"]], "(2 df)", fixed = TRUE)
+})
+
+test_that("a two-level factor header keeps its single Wald test", {
+  pd  <- fp_data(LOG_FIT, LOG_DF)
+  hdr <- pd[pd$is_header & pd$Predictor == "sex", ]
+  cn  <- grep("^sex", names(coef(LOG_FIT)), value = TRUE)
+  expect_equal(hdr$pval, joint_wald_p(LOG_FIT, cn))
+  expect_equal(hdr$p_df, 1L)
+  expect_false(grepl("df", hdr[["P-value"]]))
+})
+
+test_that("interaction rows are labelled as ratios of ORs or HRs", {
+  fit <- glm(y ~ score * grp, data = FAC3_DF, family = binomial)
+  pd  <- fp_data(fit, FAC3_DF)
+  hdr <- pd[pd$is_header & grepl("score:grp", pd$Predictor), ]
+  expect_match(hdr$Predictor, "ratio of ORs")
+  cn  <- grep(":", names(coef(fit)), value = TRUE)
+  expect_equal(hdr$pval, joint_wald_p(fit, cn))
+  expect_equal(hdr$p_df, length(cn))
 })
