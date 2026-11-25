@@ -167,8 +167,13 @@ or below a tenth of the lowest non-zero exposure, where the curve is
 effectively a step. The warning explains the consequence and lists
 options. The limits are this package's own rule of thumb.
 
-The identifiability and stopping warnings described under \strong{Convergence
-and standard errors} have class \code{bootlace_emax_identification_warning}.
+Of the warnings described under \strong{Convergence and standard errors}, a
+Hessian that is not positive definite (parameters not identified at the
+optimum) has class \code{bootlace_emax_identification_warning}, and an
+optimiser that stopped before reaching the optimum (typically EC50 running
+along the Emax/EC50 ridge) has class \code{bootlace_emax_stopped_warning}.
+\code{\link[=bootstrap_emax]{bootstrap_emax()}} keeps replicates with either, and counts each reason
+separately.
 }
 
 \section{Sample size checks}{

@@ -64,8 +64,13 @@
 #' effectively a step. The warning explains the consequence and lists
 #' options. The limits are this package's own rule of thumb.
 #'
-#' The identifiability and stopping warnings described under **Convergence
-#' and standard errors** have class `bootlace_emax_identification_warning`.
+#' Of the warnings described under **Convergence and standard errors**, a
+#' Hessian that is not positive definite (parameters not identified at the
+#' optimum) has class `bootlace_emax_identification_warning`, and an
+#' optimiser that stopped before reaching the optimum (typically EC50 running
+#' along the Emax/EC50 ridge) has class `bootlace_emax_stopped_warning`.
+#' [bootstrap_emax()] keeps replicates with either, and counts each reason
+#' separately.
 #'
 #' @param y Numeric binary outcome vector (0 or 1).
 #' @param x Numeric predictor vector (e.g. dose, concentration, time), same
@@ -348,10 +353,14 @@ fit_logistic_emax <- function(
       "unavailable and `converged` is FALSE."
     ), "bootlace_emax_identification_warning")
   } else if (!converged) {
+    # A separate class from the Hessian check: this is the optimiser not
+    # reaching the optimum (typically EC50 running along the Emax/EC50 ridge),
+    # not a non-identified optimum.
     .emax_warning(paste0(
-      "The optimiser stopped before reaching the optimum; try a smaller ",
-      "`control$reltol`."
-    ), "bootlace_emax_identification_warning")
+      "The optimiser stopped before reaching the optimum (often EC50 running ",
+      "along the Emax/EC50 ridge); `converged` is FALSE. Try a smaller ",
+      "`control$reltol`, or see confint(fit, method = \"profile\")."
+    ), "bootlace_emax_stopped_warning")
   }
 
   # ---- Is the EC50 estimate supported by the observed exposures? -------------

@@ -4,24 +4,28 @@
 # Dropping every replicate that warns would condition the bootstrap on
 # well-behaved samples. Instead each warning is classified:
 #   "keep" - benign; the replicate is kept
-#   "flag" - informative (e.g. separation); the replicate is kept and counted
+#   "flag" - informative (e.g. separation); the replicate is kept and counted.
+#            "flag:<reason>" does the same and also counts it under <reason>
 #   "drop" - the fit can't be trusted (e.g. non-convergence); the replicate is
 #            dropped and the reason recorded
 # Errors and NA coefficients also drop the replicate, with a reason.
 
 # `refit(i)` returns a named coefficient vector, or list(coef =, extra =)
 # when the caller needs more per replicate (kept in `extra` for retained
-# replicates). `classify(w)` returns "keep", "flag" or "drop".
+# replicates). `classify(w)` returns "keep", "drop", "flag" or
+# "flag:<reason>".
 .boot_loop <- function(n_boot, coef_names, refit, classify) {
   coefs   <- matrix(NA_real_, n_boot, length(coef_names),
                     dimnames = list(NULL, coef_names))
   extra   <- vector("list", n_boot)
   reason  <- rep(NA_character_, n_boot)
   flagged <- logical(n_boot)
+  flag_reasons <- vector("list", n_boot)
 
   for (i in seq_len(n_boot)) {
     drop_msg <- NULL
     flag     <- FALSE
+    reasons  <- character(0)
     res <- tryCatch(
       withCallingHandlers(
         refit(i),
@@ -29,7 +33,11 @@
           cls <- classify(w)
           if (cls == "drop" && is.null(drop_msg))
             drop_msg <<- paste("warning:", conditionMessage(w))
-          if (cls == "flag") flag <<- TRUE
+          if (startsWith(cls, "flag")) {
+            flag <<- TRUE
+            if (startsWith(cls, "flag:"))
+              reasons <<- union(reasons, sub("^flag:", "", cls))
+          }
           invokeRestart("muffleWarning")
         }
       ),
@@ -50,6 +58,7 @@
     coefs[i, ] <- b
     if (is.list(res)) extra[i] <- list(res$extra)
     flagged[i] <- flag
+    flag_reasons[[i]] <- reasons
   }
 
   keep <- is.na(reason)
@@ -60,11 +69,20 @@
   } else {
     data.frame(reason = character(0), n = integer(0), stringsAsFactors = FALSE)
   }
+  fr <- unlist(flag_reasons[keep])
+  flag_counts <- if (length(fr) > 0L) {
+    tab <- sort(table(fr), decreasing = TRUE)
+    data.frame(reason = names(tab), n = as.integer(tab),
+               stringsAsFactors = FALSE)
+  } else {
+    data.frame(reason = character(0), n = integer(0), stringsAsFactors = FALSE)
+  }
   list(
     coefs       = coefs[keep, , drop = FALSE],
     extra       = extra[keep],
     n_requested = as.integer(n_boot),
     n_flagged   = sum(flagged[keep]),
+    flag_counts = flag_counts,
     failures    = failures
   )
 }
@@ -79,11 +97,18 @@
       caller, n_drop, res$n_requested,
       paste0(res$failures$reason, " (", res$failures$n, ")", collapse = "; ")
     ))
-  if (res$n_flagged > 0L)
+  if (res$n_flagged > 0L) {
+    what <- if (nrow(res$flag_counts) > 0L) {
+      paste0(res$flag_counts$reason, " (", res$flag_counts$n, ")",
+             collapse = "; ")
+    } else {
+      flag_what
+    }
     message(sprintf(
-      "%s: %d retained replicate(s) showed %s; they are kept so the percentile intervals reflect that instability.",
-      caller, res$n_flagged, flag_what
+      "%s: %d retained replicate(s) showed %s; they are kept so the intervals reflect that instability.",
+      caller, res$n_flagged, what
     ))
+  }
   if (nrow(res$coefs) < 100L)
     warning(sprintf(
       "Only %d bootstrap replicates succeeded; CIs may be unreliable.",

@@ -80,3 +80,19 @@ test_that("bootstrap_cox() keeps and counts infinite-coefficient replicates", {
   expect_gt(bc$n_flagged, 0L)
   expect_equal(bc$n_boot + sum(bc$failures$n), bc$n_requested)
 })
+
+test_that(".boot_loop() counts flagged replicates by labelled reason", {
+  refit <- function(i) {
+    if (i %% 3 == 1) warning("ridge")
+    if (i %% 3 == 2) warning("hessian")
+    c(a = i)
+  }
+  classify <- function(w) {
+    m <- conditionMessage(w)
+    if (m == "ridge") "flag:stopped short" else "flag:poorly identified"
+  }
+  res <- .boot_loop(6L, "a", refit, classify)
+  expect_equal(res$n_flagged, 4L)
+  expect_equal(res$flag_counts$n[match(c("stopped short", "poorly identified"),
+                                       res$flag_counts$reason)], c(2L, 2L))
+})

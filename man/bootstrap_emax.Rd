@@ -26,8 +26,11 @@ An S3 object of class \code{"boot_emax"}, a named list with:
 \item{\code{conf_level}}{The requested confidence level.}
 \item{\code{n_boot}}{Number of bootstrap replicates retained.}
 \item{\code{n_requested}}{Number of bootstrap replicates requested.}
-\item{\code{n_flagged}}{Number of retained replicates whose refit raised an
-identifiability or EC50-range warning.}
+\item{\code{n_flagged}}{Number of retained replicates whose refit stopped
+short of the optimum, had a non-positive-definite Hessian, or put
+EC50 outside the supported range.}
+\item{\code{flag_counts}}{Data frame (\code{reason}, \code{n}): retained replicates
+counted by each of those reasons.}
 \item{\code{failures}}{Data frame (\code{reason}, \code{n}) of dropped replicates.}
 }
 }

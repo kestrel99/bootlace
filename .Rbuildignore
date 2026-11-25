@@ -5,4 +5,4 @@
 ^Rplots\.pdf$
 ^man-roxygen$
 ^docs$
-^SCIENTIFIC_REVIEW.*.md$
+^SCIENTIFIC_REVIEW.*\.md$

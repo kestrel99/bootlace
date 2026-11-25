@@ -37,8 +37,11 @@
 #'     \item{`conf_level`}{The requested confidence level.}
 #'     \item{`n_boot`}{Number of bootstrap replicates retained.}
 #'     \item{`n_requested`}{Number of bootstrap replicates requested.}
-#'     \item{`n_flagged`}{Number of retained replicates whose refit raised an
-#'       identifiability or EC50-range warning.}
+#'     \item{`n_flagged`}{Number of retained replicates whose refit stopped
+#'       short of the optimum, had a non-positive-definite Hessian, or put
+#'       EC50 outside the supported range.}
+#'     \item{`flag_counts`}{Data frame (`reason`, `n`): retained replicates
+#'       counted by each of those reasons.}
 #'     \item{`failures`}{Data frame (`reason`, `n`) of dropped replicates.}
 #'   }
 #'
@@ -99,13 +102,24 @@ bootstrap_emax <- function(
   }
   # Bootstrap refits use the automatic multi-start (start = NULL).
   refit <- function(i) refit_rows(sample.int(n, n, replace = TRUE), NULL)
-  # Sample-size warnings describe the data: keep. Identifiability and EC50-range
-  # warnings: keep and count (the EC50 range is summarised after the loop).
-  # Anything else (e.g. optimiser non-convergence): drop.
+  # Sample-size warnings describe the data: keep. Each of these keeps the
+  # replicate but is counted under its own reason (the EC50 range is also
+  # summarised after the loop):
+  # - the optimiser stopped short of the optimum, typically EC50 running along
+  #   the Emax/EC50 ridge. These are kept on purpose: dropping them removes
+  #   exactly the replicates that show EC50 is poorly determined, and makes
+  #   the intervals too narrow.
+  # - the Hessian at the optimum isn't positive definite (poorly identified);
+  # - EC50 outside the range the exposures support.
+  # Anything else (e.g. optim() reporting non-convergence): drop.
   classify <- function(w) {
     if (inherits(w, "bootlace_sample_size_warning")) return("keep")
-    if (inherits(w, c("bootlace_emax_identification_warning",
-                      "bootlace_emax_ec50_warning"))) return("flag")
+    if (inherits(w, "bootlace_emax_stopped_warning"))
+      return("flag:optimiser stopped short of the optimum (Emax/EC50 ridge)")
+    if (inherits(w, "bootlace_emax_identification_warning"))
+      return("flag:Hessian not positive definite (poorly identified)")
+    if (inherits(w, "bootlace_emax_ec50_warning"))
+      return("flag:EC50 outside the supported range")
     "drop"
   }
 
@@ -137,6 +151,7 @@ bootstrap_emax <- function(
       n_boot      = nrow(res$coefs),
       n_requested = res$n_requested,
       n_flagged   = res$n_flagged,
+      flag_counts = res$flag_counts,
       failures    = res$failures
     ),
     class = "boot_emax"

@@ -1,5 +1,12 @@
 # bootlace 0.1.0
 
+* Fixes from the follow-up scientific review (no issue):
+  * `plot_cox_survival(fun = "cumhaz")` returned inverted confidence limits; bounds are now computed on the requested scale.
+  * `fp_data()` / `fp_plot()` work with non-treatment contrasts (e.g. `contr.sum`): terms are mapped to their fitted coefficients, and level rows are level-vs-reference comparisons built from the fitted contrasts.
+  * `stepwise_reduce()` no longer discards refit warnings: non-convergence makes a comparison untested (listed in `untested`), and separation or possibly infinite coefficients are listed in the new `test_warnings`.
+  * Count and seed arguments must be whole numbers within R's integer range.
+  * `fit_logistic_emax()` warns with class `bootlace_emax_stopped_warning` when the optimiser stops short of the optimum, separately from a non-identified Hessian; `bootstrap_emax()` keeps both kinds of replicate (so EC50 ridge behaviour stays in the intervals) but counts each reason in `flag_counts`.
+
 * Emax intervals: a simulation study found that bootstrap percentile intervals under-covered the true Emax (86% for a nominal 95% in a well-identified design, 80-83% in a weakly identified one). With the changes below, BCa intervals cover 89-95% and profile intervals 91-99% in both designs:
   * `summary.boot_emax()` and `plot_emax_curve()` now default to BCa (bias-corrected and accelerated) intervals, using jackknife fits that `bootstrap_emax()` stores as `jack_theta`; `ci = "percentile"` gives the old intervals.
   * `bootstrap_emax()` refits each replicate from the automatic multi-start instead of the original estimate, which had understated the spread of EC50 by about 20% in weakly identified designs.

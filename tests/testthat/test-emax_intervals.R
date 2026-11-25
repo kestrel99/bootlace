@@ -8,7 +8,8 @@ emax_set <- function(ec50 = 10, emax = 3, n = 300L, seed = 1L) {
   list(x = x, y = rbinom(n, 1, plogis(qlogis(0.1) + emax * x / (ec50 + x))))
 }
 quiet_emax <- function(expr) suppressMessages(muffle_class(
-  expr, c("bootlace_emax_ec50_warning", "bootlace_emax_identification_warning")
+  expr, c("bootlace_emax_ec50_warning", "bootlace_emax_identification_warning",
+          "bootlace_emax_stopped_warning")
 ))
 
 # ---- BCa ------------------------------------------------------------------------
@@ -113,4 +114,41 @@ test_that("plot_emax_curve() offers BCa (default) and percentile ribbons", {
   rib_p <- Filter(function(z) "ymin" %in% names(z), ggplot2::ggplot_build(pp)$data)[[1]]
   expect_false(isTRUE(all.equal(rib_b$ymin, rib_p$ymin)))
   expect_match(pb$labels$subtitle, "BCa")
+})
+
+# ---- Follow-up review: optimiser failures vs poor identification -----------------
+
+test_that("stopping short and a non-PD Hessian are different warning classes", {
+  d <- emax_set()
+  first_class <- function() {
+    cls <- character(0)
+    withCallingHandlers(
+      fit_logistic_emax(d$y, d$x),
+      warning = function(w) {
+        cls <<- c(cls, class(w)[1])
+        invokeRestart("muffleWarning")
+      }
+    )
+    cls
+  }
+  # Optimiser stopped short: PD Hessian but a large Newton decrement.
+  local_mocked_bindings(.polish_optimum = function(f, p, ...) {
+    list(par = p, H_inv = diag(length(p)), decrement = 1)
+  })
+  expect_true("bootlace_emax_stopped_warning" %in% first_class())
+  # Not identified: no positive-definite Hessian.
+  local_mocked_bindings(.polish_optimum = function(f, p, ...) {
+    list(par = p, H_inv = NULL, decrement = NA_real_)
+  })
+  expect_true("bootlace_emax_identification_warning" %in% first_class())
+})
+
+test_that("bootstrap_emax() keeps ridge replicates but counts each reason", {
+  d   <- emax_set()
+  fit <- fit_logistic_emax(d$y, d$x)
+  be  <- quiet_emax(bootstrap_emax(fit, n_boot = 120L, seed = 1L))
+  expect_named(be$flag_counts, c("reason", "n"))
+  expect_equal(sum(grepl("stopped short|identified|EC50", be$flag_counts$reason)),
+               nrow(be$flag_counts))
+  expect_equal(be$n_boot + sum(be$failures$n), be$n_requested)
 })
