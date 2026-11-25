@@ -36,10 +36,12 @@ additively (\eqn{\mathbf{z}_{ec50}}); a coefficient of \eqn{\delta}
 multiplies EC50 by \eqn{e^\delta} per unit change.  Same formats as
 \code{linear_covs}.  \code{NULL} omits.}
 
-\item{start}{Starting values. One of:
+\item{start}{Starting values, which must be finite with a positive EC50.
+One of:
 \itemize{
-\item \code{NULL} (default): auto-derived from a simple logistic regression;
-covariate effects start at 0.
+\item \code{NULL} (default): auto-derived from a simple logistic regression,
+with three EC50 starting values (see \strong{Convergence and standard
+errors}); covariate effects start at 0.
 \item A length-3 vector \code{c(e0, emax, ec50)} on the natural scale:
 base parameters; covariate effects start at 0.
 \item A full-length vector of length
@@ -66,7 +68,8 @@ log scale.}
 \item{\code{std_err}}{Standard errors matching \code{coefficients} (delta method
 applied to \code{ec50}).}
 \item{\code{vcov_theta}}{Variance-covariance matrix in the optimisation
-parameterisation \verb{(e0, emax0, log_ec50_0, beta..., gamma..., delta...)}, or \code{NULL} when unavailable.}
+parameterisation \verb{(e0, emax0, log_ec50_0, beta..., gamma..., delta...)}, or \code{NULL} when \code{hessian = FALSE} or the Hessian is not
+positive definite.}
 \item{\code{theta_hat}}{Raw optimised parameter vector (same parameterisation
 as \code{vcov_theta}).}
 \item{\code{fitted.values}}{Fitted probabilities for the observed data.}
@@ -74,7 +77,8 @@ as \code{vcov_theta}).}
 \item{\code{residuals}}{Raw residuals \code{y - fitted.values}.}
 \item{\code{loglik}}{Log-likelihood at the MLE.}
 \item{\code{AIC}}{Akaike information criterion.}
-\item{\code{converged}}{\code{TRUE} when \code{\link[=optim]{optim()}} converged.}
+\item{\code{converged}}{\code{TRUE} when the fit passed every convergence check;
+see \strong{Convergence and standard errors}.}
 \item{\code{n_par}}{Total number of parameters.}
 \item{\code{x}, \code{y}}{Complete-case predictor and outcome vectors.}
 \item{\code{Z_lin}, \code{Z_emax}, \code{Z_ec50}}{Covariate matrices used in fitting
@@ -126,12 +130,31 @@ contrasts and reference levels automatically.
 
 \section{Exposure levels}{
 
-In addition to the \strong{Sample size checks}, a warning is given when \code{x} has
-fewer than 3 distinct non-zero values, because Emax and EC50 can't then be
-estimated separately. For factor covariates, the sparse-level check uses
-the original levels. The EPV count is all parameters except E0. EPV rules
-of thumb were developed for models with a linear predictor. Emax and EC50
+\code{x} must be finite and non-negative, and \code{y} must contain both outcome
+classes. E0, Emax and EC50 need at least 3 distinct exposure values
+(counting zero), so fewer is an error. With exactly 3 the curve is exactly
+determined and EC50 is usually poorly estimated, so in addition to the
+\strong{Sample size checks} a warning is given when \code{x} has fewer than 4
+distinct values. For factor covariates, the sparse-level check uses the
+original levels. The EPV count is all parameters except E0. EPV rules of
+thumb were developed for models with a linear predictor. Emax and EC50
 enter this model nonlinearly, so treat EPV >= 10 as a minimum.
+}
+
+\section{Convergence and standard errors}{
+
+When \code{start} is \code{NULL}, the optimiser is run from three EC50 starting
+values (the 25th, 50th and 75th percentiles of the non-zero exposures) and
+the best optimum is kept. The result is then finished with Newton steps.
+\code{converged} is \code{TRUE} only when \code{\link[=optim]{optim()}} reports success, the Hessian at
+the optimum is positive definite and well conditioned, and the remaining
+possible gain in log-likelihood (the Newton decrement) is below 1e-4.
+Otherwise a warning explains which check failed. When the Hessian check
+fails, some parameters are not identified (for example EC50 far above the
+highest exposure, where Emax and EC50 trade off), and standard errors are
+reported as \code{NA} instead of as misleadingly precise values. In weakly
+identified designs, consider a profile likelihood or \code{\link[=bootstrap_emax]{bootstrap_emax()}}
+for EC50 rather than the Wald standard error.
 }
 
 \section{Sample size checks}{

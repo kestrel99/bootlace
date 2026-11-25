@@ -7,7 +7,7 @@
 .EPV_MIN       <- 10  # Peduzzi et al. (1996): problems below 10
 .EPV_SELECTION <- 25  # Heinze, Wallisch & Dunkler (2018), Table 3
 .EVENTS_MIN    <- 20  # pragmatic floor, not a literature standard
-.X_LEVELS_MIN  <- 3   # distinct non-zero exposures needed to separate Emax/EC50
+.X_LEVELS_MIN  <- 4   # distinct exposures (incl. zero) for more than an exactly determined curve
 # Significance level equivalent to AIC for a 1-df test (about 0.157). Heinze
 # et al. (2018, Section 2.4.1) advise no smaller alpha when EPV < 25.
 .ALPHA_AIC     <- stats::pchisq(2, df = 1, lower.tail = FALSE)
@@ -66,7 +66,7 @@
 
 .counts_emax <- function(fit) {
   y <- fit$y
-  x_pos <- fit$x[fit$x > 0 & is.finite(fit$x)]
+  x_lv <- unique(fit$x[is.finite(fit$x)])
   groups <- c(
     .emax_cov_groups(fit$Z_lin,  fit$mm_info_lin,  "linear_covs"),
     .emax_cov_groups(fit$Z_emax, fit$mm_info_emax, "emax_covs"),
@@ -82,7 +82,7 @@
     limiting_events = min(sum(y), sum(1 - y)),
     n_params        = fit$n_par - 1L,
     sparse_levels   = .sparse_levels(groups, y, 1 - y),
-    n_x_levels      = length(unique(x_pos))
+    n_x_levels      = length(x_lv)
   )
 }
 
@@ -186,7 +186,7 @@
   }
   if (!is.na(ss$n_x_levels) && ss$n_x_levels < .X_LEVELS_MIN) {
     probs <- c(probs, sprintf(
-      "Only %d distinct non-zero exposure level(s); Emax and EC50 can't be estimated separately.",
+      "Only %d distinct exposure levels (counting zero); with fewer than 4, E0, Emax and EC50 are at best exactly determined and EC50 is usually poorly estimated.",
       ss$n_x_levels
     ))
   }

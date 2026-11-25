@@ -65,7 +65,7 @@ test_that(".sample_size() counts Emax parameters excluding E0", {
   ss  <- .sample_size(fit)
   expect_equal(ss$n_params, 2L)
   expect_equal(ss$events, sum(d$y))
-  expect_equal(ss$n_x_levels, 5L)
+  expect_equal(ss$n_x_levels, 6L)
 })
 
 # ---- Checks ------------------------------------------------------------------
@@ -165,12 +165,12 @@ test_that("binary 0/1 Emax covariate columns are checked", {
   expect_equal(.sample_size(fit)$sparse_levels, "b = 1 (0 non-events)")
 })
 
-test_that("Emax with fewer than 3 non-zero exposure levels is flagged", {
+test_that("Emax with fewer than 4 distinct exposure levels is flagged", {
   d    <- make_emax()
   dose <- rep(c(0, 10, 100), length.out = 200)
   fit  <- suppressWarnings(fit_logistic_emax(d$y, dose))
   ss   <- .sample_size(fit)
-  expect_equal(ss$n_x_levels, 2L)
+  expect_equal(ss$n_x_levels, 3L)
   expect_match(ss$problems, "exposure level", all = FALSE)
 })
 
@@ -235,20 +235,24 @@ test_that("fit_logistic_emax() warns and records sample size", {
     fit <- fit_logistic_emax(d$y, dose),
     class = "bootlace_sample_size_warning"
   )
-  expect_equal(fit$sample_size$n_x_levels, 2L)
+  expect_equal(fit$sample_size$n_x_levels, 3L)
   expect_output(print(fit), "EPV")
 })
 
 test_that("bootstrap_emax() doesn't count sample-size warnings as failed refits", {
   d   <- make_emax()
   fit <- fit_logistic_emax(d$y, d$dose)
+  # Some replicates fail for real (e.g. EC50 running off to infinity), so
+  # compare with the same bootstrap run without the extra warning.
+  plain <- suppressMessages(bootstrap_emax(fit, n_boot = 120L, seed = 1L))
   real_fit <- fit_logistic_emax
   local_mocked_bindings(fit_logistic_emax = function(...) {
     .warn_sample_size(list(problems = "test problem"), "fit_logistic_emax")
     real_fit(...)
   })
-  expect_no_message(be <- bootstrap_emax(fit, n_boot = 120L, seed = 1L))
-  expect_equal(be$n_boot, 120L)
+  be <- suppressMessages(bootstrap_emax(fit, n_boot = 120L, seed = 1L))
+  expect_equal(be$n_boot, plain$n_boot)
+  expect_gt(be$n_boot, 100L)
   expect_output(print(be), "EPV")
 })
 

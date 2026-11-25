@@ -31,12 +31,29 @@
 #' contrasts and reference levels automatically.
 #'
 #' @section Exposure levels:
-#' In addition to the **Sample size checks**, a warning is given when `x` has
-#' fewer than 3 distinct non-zero values, because Emax and EC50 can't then be
-#' estimated separately. For factor covariates, the sparse-level check uses
-#' the original levels. The EPV count is all parameters except E0. EPV rules
-#' of thumb were developed for models with a linear predictor. Emax and EC50
+#' `x` must be finite and non-negative, and `y` must contain both outcome
+#' classes. E0, Emax and EC50 need at least 3 distinct exposure values
+#' (counting zero), so fewer is an error. With exactly 3 the curve is exactly
+#' determined and EC50 is usually poorly estimated, so in addition to the
+#' **Sample size checks** a warning is given when `x` has fewer than 4
+#' distinct values. For factor covariates, the sparse-level check uses the
+#' original levels. The EPV count is all parameters except E0. EPV rules of
+#' thumb were developed for models with a linear predictor. Emax and EC50
 #' enter this model nonlinearly, so treat EPV >= 10 as a minimum.
+#'
+#' @section Convergence and standard errors:
+#' When `start` is `NULL`, the optimiser is run from three EC50 starting
+#' values (the 25th, 50th and 75th percentiles of the non-zero exposures) and
+#' the best optimum is kept. The result is then finished with Newton steps.
+#' `converged` is `TRUE` only when [optim()] reports success, the Hessian at
+#' the optimum is positive definite and well conditioned, and the remaining
+#' possible gain in log-likelihood (the Newton decrement) is below 1e-4.
+#' Otherwise a warning explains which check failed. When the Hessian check
+#' fails, some parameters are not identified (for example EC50 far above the
+#' highest exposure, where Emax and EC50 trade off), and standard errors are
+#' reported as `NA` instead of as misleadingly precise values. In weakly
+#' identified designs, consider a profile likelihood or [bootstrap_emax()]
+#' for EC50 rather than the Wald standard error.
 #'
 #' @param y Numeric binary outcome vector (0 or 1).
 #' @param x Numeric predictor vector (e.g. dose, concentration, time), same
@@ -52,10 +69,12 @@
 #'   additively (\eqn{\mathbf{z}_{ec50}}); a coefficient of \eqn{\delta}
 #'   multiplies EC50 by \eqn{e^\delta} per unit change.  Same formats as
 #'   `linear_covs`.  `NULL` omits.
-#' @param start Starting values. One of:
+#' @param start Starting values, which must be finite with a positive EC50.
+#'   One of:
 #'   \itemize{
-#'     \item `NULL` (default): auto-derived from a simple logistic regression;
-#'       covariate effects start at 0.
+#'     \item `NULL` (default): auto-derived from a simple logistic regression,
+#'       with three EC50 starting values (see **Convergence and standard
+#'       errors**); covariate effects start at 0.
 #'     \item A length-3 vector `c(e0, emax, ec50)` on the natural scale:
 #'       base parameters; covariate effects start at 0.
 #'     \item A full-length vector of length
@@ -79,7 +98,8 @@
 #'       applied to `ec50`).}
 #'     \item{`vcov_theta`}{Variance-covariance matrix in the optimisation
 #'       parameterisation `(e0, emax0, log_ec50_0, beta..., gamma...,
-#'       delta...)`, or `NULL` when unavailable.}
+#'       delta...)`, or `NULL` when `hessian = FALSE` or the Hessian is not
+#'       positive definite.}
 #'     \item{`theta_hat`}{Raw optimised parameter vector (same parameterisation
 #'       as `vcov_theta`).}
 #'     \item{`fitted.values`}{Fitted probabilities for the observed data.}
@@ -87,7 +107,8 @@
 #'     \item{`residuals`}{Raw residuals `y - fitted.values`.}
 #'     \item{`loglik`}{Log-likelihood at the MLE.}
 #'     \item{`AIC`}{Akaike information criterion.}
-#'     \item{`converged`}{`TRUE` when [optim()] converged.}
+#'     \item{`converged`}{`TRUE` when the fit passed every convergence check;
+#'       see **Convergence and standard errors**.}
 #'     \item{`n_par`}{Total number of parameters.}
 #'     \item{`x`, `y`}{Complete-case predictor and outcome vectors.}
 #'     \item{`Z_lin`, `Z_emax`, `Z_ec50`}{Covariate matrices used in fitting
@@ -195,6 +216,16 @@ fit_logistic_emax <- function(
   if (ncol(Z_ec50_raw) > 0) ok <- ok & stats::complete.cases(Z_ec50_raw)
 
   y      <- y[ok]; x <- x[ok]; n <- length(y)
+  if (any(!is.finite(x))) stop("`x` must be finite.")
+  if (any(x < 0))         stop("`x` must be non-negative.")
+  if (length(unique(y)) < 2L)
+    stop("`y` must contain both outcome classes (0 and 1).")
+  n_x <- length(unique(x))
+  if (n_x < 3L)
+    stop(sprintf(paste0(
+      "`x` has %d distinct value(s); at least 3 (counting zero) are needed ",
+      "to estimate E0, Emax and EC50."
+    ), n_x))
   Z_lin  <- Z_lin_raw[ok,  , drop = FALSE]
   Z_emax <- Z_emax_raw[ok, , drop = FALSE]
   Z_ec50 <- Z_ec50_raw[ok, , drop = FALSE]
@@ -259,16 +290,20 @@ fit_logistic_emax <- function(
       e0_start   <- stats::qlogis(mean(pmin(pmax(y, 0.01), 0.99)))
       emax_start <- 1
     }
-    x_pos      <- unique(x[x > 0 & is.finite(x)])
-    ec50_start <- if (length(x_pos) > 0) stats::median(x_pos) else 1
+    x_pos      <- unique(x[x > 0])
+    ec50_start <- stats::median(x_pos)
     start_full <- c(e0_start, emax_start, log(ec50_start), rep(0, n_par - 3L))
+    # Extra EC50 starting points guard against a local optimum.
+    ec50_alt   <- stats::quantile(x_pos, c(0.25, 0.75), names = FALSE)
 
-  } else if (length(start) == 3L) {
-    start_full <- c(start[[1]], start[[2]], log(start[[3]]), rep(0, n_par - 3L))
-
-  } else if (length(start) == n_par) {
-    start_full              <- as.numeric(start)
-    start_full[idx_log_ec50] <- log(start_full[idx_log_ec50])
+  } else if (length(start) == 3L || length(start) == n_par) {
+    start <- as.numeric(start)
+    if (!all(is.finite(start)) || start[[3]] <= 0)
+      stop("`start` must be finite, with a positive EC50 (third element).")
+    start_full <- if (length(start) == 3L)
+      c(start[1:2], log(start[[3]]), rep(0, n_par - 3L)) else start
+    start_full[idx_log_ec50] <- log(start[[3]])
+    ec50_alt <- numeric(0)
 
   } else {
     stop(sprintf(
@@ -278,28 +313,53 @@ fit_logistic_emax <- function(
   names(start_full) <- theta_names
 
   # ---- Optimise --------------------------------------------------------------
-  opt <- stats::optim(
-    par     = start_full,
-    fn      = nll,
-    method  = "BFGS",
-    control = control,
-    hessian = hessian,
-    ...
+  starts <- c(
+    list(start_full),
+    lapply(ec50_alt, function(e) replace(start_full, idx_log_ec50, log(e)))
   )
-  if (opt$convergence != 0)
-    warning("Optimisation did not converge. Code: ", opt$convergence)
+  runs <- lapply(starts, function(s) tryCatch(
+    stats::optim(par = s, fn = nll, method = "BFGS", control = control, ...),
+    error = function(e) NULL
+  ))
+  runs <- Filter(function(r) !is.null(r) && is.finite(r$value), runs)
+  if (length(runs) == 0L) stop("Optimisation failed from every starting value.")
+  opt <- runs[[which.min(vapply(runs, `[[`, numeric(1L), "value"))]]
 
-  th         <- setNames(opt$par, theta_names)
-  ec50_est   <- exp(th[idx_log_ec50])
+  # ---- Convergence and identifiability ---------------------------------------
+  # The optimiser's status alone isn't enough: also require a positive-definite,
+  # well-conditioned Hessian (otherwise some parameter isn't identified) and a
+  # negligible Newton decrement, 0.5 * g' H^-1 g, i.e. the log-likelihood the
+  # optimiser could still gain. BFGS often stops a little short, so finish
+  # with Newton steps first.
+  pol       <- .polish_optimum(nll, setNames(opt$par, theta_names))
+  th        <- pol$par
+  H_inv     <- pol$H_inv
+  decrement <- pol$decrement
+  nll_hat   <- nll(th)
+  ec50_est  <- exp(th[idx_log_ec50])
+  converged <- opt$convergence == 0 && !is.null(H_inv) && decrement < 1e-4
+  if (opt$convergence != 0) {
+    warning("Optimisation did not converge. Code: ", opt$convergence)
+  } else if (is.null(H_inv)) {
+    warning(
+      "The Hessian at the optimum is not positive definite or is nearly ",
+      "singular, so some parameters are not identified. Standard errors are ",
+      "unavailable and `converged` is FALSE."
+    )
+  } else if (!converged) {
+    warning(
+      "The optimiser stopped before reaching the optimum; try a smaller ",
+      "`control$reltol`."
+    )
+  }
 
   # ---- Variance-covariance ---------------------------------------------------
-  vcov_theta <- NULL
-  if (hessian && all(is.finite(opt$hessian)))
-    vcov_theta <- tryCatch(solve(opt$hessian), error = function(e) NULL)
+  vcov_theta <- if (hessian) H_inv else NULL
+  if (!is.null(vcov_theta)) dimnames(vcov_theta) <- list(theta_names, theta_names)
 
   # ---- Standard errors (reporting scale) ------------------------------------
   if (!is.null(vcov_theta)) {
-    se_th   <- sqrt(pmax(0, diag(vcov_theta)))
+    se_th   <- sqrt(diag(vcov_theta))
     std_err <- c(
       se_th[idx_e0], se_th[idx_emax0],
       ec50_est * se_th[idx_log_ec50],           # delta method for ec50
@@ -347,9 +407,9 @@ fit_logistic_emax <- function(
       fitted.values     = fitted,
       linear.predictors = as.vector(eta),
       residuals         = y - fitted,
-      loglik            = -opt$value,
-      AIC               = 2 * n_par + 2 * opt$value,
-      converged         = opt$convergence == 0,
+      loglik            = -nll_hat,
+      AIC               = 2 * n_par + 2 * nll_hat,
+      converged         = converged,
       n_par             = n_par,
       x                 = x,
       y                 = y,
@@ -565,4 +625,53 @@ predict.logistic_emax <- function(
     lwr = stats::plogis(eta - z * se_eta),
     upr = stats::plogis(eta + z * se_eta)
   )
+}
+
+
+# ---- Internal helpers ---------------------------------------------------------
+
+# Inverse of a Hessian, or NULL when it is not finite, not positive definite,
+# or too ill-conditioned to invert reliably (a sign of unidentified
+# parameters).
+.pd_inverse <- function(H) {
+  if (!all(is.finite(H))) return(NULL)
+  R <- tryCatch(chol(H), error = function(e) NULL)
+  if (is.null(R)) return(NULL)
+  if (kappa(H, exact = TRUE) > 1e10) return(NULL)
+  chol2inv(R)
+}
+
+# Central-difference gradient of `f` at `p`.
+.num_grad <- function(f, p, h = 1e-5) {
+  vapply(seq_along(p), function(j) {
+    e <- numeric(length(p))
+    e[j] <- h * max(1, abs(p[[j]]))
+    (f(p + e) - f(p - e)) / (2 * e[j])
+  }, numeric(1L))
+}
+
+# Finish a minimisation of `f` from `p` with Newton steps (with step-halving)
+# until the Newton decrement 0.5 * g' H^-1 g is below `tol`. Returns the
+# final parameters, the inverse Hessian (NULL when the Hessian isn't positive
+# definite) and the decrement.
+.polish_optimum <- function(f, p, tol = 1e-4, max_steps = 10L) {
+  for (k in 0:max_steps) {
+    H_inv <- .pd_inverse(stats::optimHess(p, f))
+    if (is.null(H_inv)) return(list(par = p, H_inv = NULL, decrement = NA_real_))
+    g         <- .num_grad(f, p)
+    step      <- drop(H_inv %*% g)
+    decrement <- 0.5 * sum(g * step)
+    if (decrement < tol || k == max_steps) break
+    f0 <- f(p)
+    t  <- 1
+    repeat {
+      p_new <- p - t * step
+      f_new <- f(p_new)
+      if (is.finite(f_new) && f_new < f0) break
+      t <- t / 2
+      if (t < 1e-8) return(list(par = p, H_inv = H_inv, decrement = decrement))
+    }
+    p <- p_new
+  }
+  list(par = p, H_inv = H_inv, decrement = decrement)
 }
