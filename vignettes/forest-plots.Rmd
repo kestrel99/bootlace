@@ -21,7 +21,7 @@ set.seed(42)
 
 ## Overview
 
-**strapwise** provides two functions for building publication-ready forest
+**bootlace** provides two functions for building publication-ready forest
 plots from fitted regression models:
 
 - `fp_data()` — extracts coefficients and confidence intervals from a `glm`
@@ -35,7 +35,7 @@ the appropriate column header (`OR (95% CI)` for logistic models,
 `HR (95% CI)` for Cox models).
 
 ```{r load}
-library(strapwise)
+library(bootlace)
 library(survival)
 ```
 

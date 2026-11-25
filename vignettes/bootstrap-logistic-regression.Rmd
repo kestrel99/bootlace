@@ -21,7 +21,7 @@ set.seed(42)
 
 ## Overview
 
-**strapwise** provides two functions:
+**bootlace** provides two functions:
 
 - `bootstrap_logistic()` — applies case-resampling bootstrap to a fitted
   `glm` object with `family = binomial`, producing a matrix of bootstrapped
@@ -40,7 +40,7 @@ We simulate a binary outcome influenced by age (continuous), BMI
 factor).
 
 ```{r simulate}
-library(strapwise)
+library(bootlace)
 
 set.seed(42)
 n  <- 400
@@ -71,7 +71,7 @@ table(df$y)
 
 ## Fit the logistic regression model
 
-Model fitting is the user's responsibility. `strapwise` works with any
+Model fitting is the user's responsibility. `bootlace` works with any
 `glm(..., family = binomial)` object—the link function (logit, probit,
 complementary log-log, etc.) is detected automatically.
 

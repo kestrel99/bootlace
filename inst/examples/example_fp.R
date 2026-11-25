@@ -11,7 +11,7 @@
 #   PART 2 — Cox proportional hazards
 # =============================================================================
 
-library(strapwise)
+library(bootlace)
 library(survival)
 
 

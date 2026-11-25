@@ -1,4 +1,4 @@
 library(testthat)
-library(strapwise)
+library(bootlace)
 
-test_check("strapwise")
+test_check("bootlace")

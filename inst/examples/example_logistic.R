@@ -1,5 +1,5 @@
 # =============================================================================
-# strapwise — end-to-end logistic regression example
+# bootlace — end-to-end logistic regression example
 #
 # Covers:
 #   1. Standard logistic regression  (bootstrap_logistic / plot_logistic_curves
@@ -8,7 +8,7 @@
 #      roc_logistic_emax / bootstrap_emax / plot_emax_curve)
 # =============================================================================
 
-library(strapwise)
+library(bootlace)
 library(ggplot2)
 
 

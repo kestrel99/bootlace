@@ -557,18 +557,18 @@ test_that("fp_plot: 3-level factor model renders without error", {
 # ── .fp_fmt internal helper ───────────────────────────────────────────────────
 
 test_that(".fp_fmt returns '-' for NA", {
-  expect_equal(strapwise:::.fp_fmt(NA_real_), "-")
+  expect_equal(bootlace:::.fp_fmt(NA_real_), "-")
 })
 
 test_that(".fp_fmt trims leading whitespace", {
   vals <- c(1.234567, 0.00001, 1000.5)
-  result <- strapwise:::.fp_fmt(vals, digits = 3)
+  result <- bootlace:::.fp_fmt(vals, digits = 3)
   expect_true(all(!grepl("^ ", result)))
 })
 
 test_that(".fp_fmt respects digits argument", {
-  r3 <- strapwise:::.fp_fmt(1.23456, digits = 3)
-  r5 <- strapwise:::.fp_fmt(1.23456, digits = 5)
+  r3 <- bootlace:::.fp_fmt(1.23456, digits = 3)
+  r5 <- bootlace:::.fp_fmt(1.23456, digits = 5)
   expect_equal(nchar(r3) <= nchar(r5), TRUE)
 })
 
@@ -576,17 +576,17 @@ test_that(".fp_fmt respects digits argument", {
 # ── .fp_fmt_p internal helper ─────────────────────────────────────────────────
 
 test_that(".fp_fmt_p returns empty string for NA", {
-  expect_equal(strapwise:::.fp_fmt_p(NA_real_), "")
+  expect_equal(bootlace:::.fp_fmt_p(NA_real_), "")
 })
 
 test_that(".fp_fmt_p returns <0.001 for very small p", {
-  expect_equal(strapwise:::.fp_fmt_p(0.00001), "<0.001")
-  expect_equal(strapwise:::.fp_fmt_p(1e-10),   "<0.001")
+  expect_equal(bootlace:::.fp_fmt_p(0.00001), "<0.001")
+  expect_equal(bootlace:::.fp_fmt_p(1e-10),   "<0.001")
 })
 
 test_that(".fp_fmt_p formats moderate p to 3 decimal places", {
-  expect_equal(strapwise:::.fp_fmt_p(0.0523), "0.052")
-  expect_equal(strapwise:::.fp_fmt_p(0.1234), "0.123")
+  expect_equal(bootlace:::.fp_fmt_p(0.0523), "0.052")
+  expect_equal(bootlace:::.fp_fmt_p(0.1234), "0.123")
 })
 
 
@@ -594,32 +594,32 @@ test_that(".fp_fmt_p formats moderate p to 3 decimal places", {
 
 test_that(".fp_int_coefs finds continuous x continuous interaction", {
   coef_names <- c("(Intercept)", "age", "bmi", "age:bmi")
-  result <- strapwise:::.fp_int_coefs("age:bmi", coef_names)
+  result <- bootlace:::.fp_int_coefs("age:bmi", coef_names)
   expect_equal(result, "age:bmi")
 })
 
 test_that(".fp_int_coefs finds continuous x factor interaction (factor suffix)", {
   coef_names <- c("(Intercept)", "age", "sexM", "age:sexM")
-  result <- strapwise:::.fp_int_coefs("age:sex", coef_names)
+  result <- bootlace:::.fp_int_coefs("age:sex", coef_names)
   expect_equal(result, "age:sexM")
 })
 
 test_that(".fp_int_coefs handles factor-first coefficient names", {
   # Some R versions / formula orderings produce "sexM:age" not "age:sexM"
   coef_names <- c("(Intercept)", "age", "sexM", "sexM:age")
-  result <- strapwise:::.fp_int_coefs("age:sex", coef_names)
+  result <- bootlace:::.fp_int_coefs("age:sex", coef_names)
   expect_equal(result, "sexM:age")
 })
 
 test_that(".fp_int_coefs returns character(0) when no match", {
   coef_names <- c("(Intercept)", "age", "bmi")
-  result <- strapwise:::.fp_int_coefs("age:bmi", coef_names)
+  result <- bootlace:::.fp_int_coefs("age:bmi", coef_names)
   expect_equal(result, character(0L))
 })
 
 test_that(".fp_int_coefs finds multiple levels for multi-level factor", {
   coef_names <- c("(Intercept)", "age", "grpB", "grpC",
                   "age:grpB", "age:grpC")
-  result <- strapwise:::.fp_int_coefs("age:grp", coef_names)
+  result <- bootlace:::.fp_int_coefs("age:grp", coef_names)
   expect_setequal(result, c("age:grpB", "age:grpC"))
 })

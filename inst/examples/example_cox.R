@@ -1,5 +1,5 @@
 # =============================================================================
-# strapwise — end-to-end Cox proportional hazards example
+# bootlace — end-to-end Cox proportional hazards example
 #
 # Covers:
 #   bootstrap_cox()      — case-resampling bootstrap for a coxph fit
@@ -8,7 +8,7 @@
 #   plot_cox_survival()  — adjusted survival curves with bootstrap CI ribbons
 # =============================================================================
 
-library(strapwise)
+library(bootlace)
 library(survival)
 library(ggplot2)
 

@@ -1,4 +1,4 @@
-#' strapwise: Bootstrap Inference and Plots for Logistic, Emax and Cox Models
+#' bootlace: Bootstrap Inference and Plots for Logistic, Emax and Cox Models
 #'
 #' Provides case-resampling bootstrap for fitted binomial GLMs, logistic Emax
 #' models and Cox proportional hazards models, with companion plots and model

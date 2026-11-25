@@ -1,4 +1,4 @@
-# strapwise 0.1.0
+# bootlace 0.1.0
 
 * Initial package development for bootstrap-based inference and response-curve
   visualization for binomial logistic regression models.

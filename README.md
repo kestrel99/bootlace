@@ -1,11 +1,11 @@
-# strapwise
+# bootlace
 
 Bootstrap inference, response-curve plotting, and forest plots for logistic
 regression and Cox proportional hazards models.
 
 ## Overview
 
-`strapwise` provides a toolkit for fitting, bootstrapping, and visualising
+`bootlace` provides a toolkit for fitting, bootstrapping, and visualising
 binary-outcome and time-to-event regression models.
 
 ### Logistic regression (`glm(..., family = binomial)`)
@@ -47,11 +47,11 @@ binary-outcome and time-to-event regression models.
 ```r
 # from GitHub
 # install.packages("pak")
-pak::pak("kestrel99/strapwise")
+pak::pak("kestrel99/bootlace")
 
 # or with remotes
 # install.packages("remotes")
-remotes::install_github("kestrel99/strapwise")
+remotes::install_github("kestrel99/bootlace")
 ```
 
 ## Examples
@@ -59,7 +59,7 @@ remotes::install_github("kestrel99/strapwise")
 ### Logistic regression bootstrap
 
 ```r
-library(strapwise)
+library(bootlace)
 
 df <- data.frame(
   y   = rbinom(200, 1, 0.4),
