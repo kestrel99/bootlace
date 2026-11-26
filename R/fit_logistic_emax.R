@@ -158,9 +158,9 @@
 #'
 #' @examples
 #' set.seed(42)
-#' n    <- 200
-#' dose <- sort(rep(c(0, 5, 10, 25, 50, 100), length.out = n))
-#' eta  <- qlogis(0.10) + (qlogis(0.75) - qlogis(0.10)) * dose / (10 + dose)
+#' n    <- 400
+#' dose <- sort(rep(c(0, 1, 2.5, 5, 10, 20, 40, 80), length.out = n))
+#' eta  <- qlogis(0.05) + (qlogis(0.95) - qlogis(0.05)) * dose / (10 + dose)
 #' y    <- rbinom(n, 1, plogis(eta))
 #'
 #' # Basic model
@@ -291,6 +291,7 @@ fit_logistic_emax <- function(
 
   # ---- Negative log-likelihood -----------------------------------------------
   nll <- .emax_nll_fn(x, y, Z_lin, Z_emax, Z_ec50, idx)
+  gr  <- .emax_grad_fn(x, y, Z_lin, Z_emax, Z_ec50, idx)
 
   # ---- Starting values -------------------------------------------------------
   if (is.null(start)) {
@@ -336,7 +337,8 @@ fit_logistic_emax <- function(
     lapply(ec50_alt, function(e) replace(start_full, idx_log_ec50, log(e)))
   )
   runs <- lapply(starts, function(s) tryCatch(
-    stats::optim(par = s, fn = nll, method = "BFGS", control = control, ...),
+    stats::optim(par = s, fn = nll, gr = gr, method = "BFGS",
+                 control = control, ...),
     error = function(e) NULL
   ))
   runs <- Filter(function(r) !is.null(r) && is.finite(r$value), runs)
@@ -349,18 +351,18 @@ fit_logistic_emax <- function(
   # negligible Newton decrement, 0.5 * g' H^-1 g, i.e. the log-likelihood the
   # optimiser could still gain. BFGS often stops a little short, so finish
   # with Newton steps first.
-  pol       <- .polish_optimum(nll, setNames(opt$par, theta_names))
+  pol       <- .polish_optimum(nll, setNames(opt$par, theta_names), gr = gr)
   # Stopped short with a usable Hessian: retry once with a longer, tighter
   # BFGS run and more Newton steps before judging the fit.
   if (opt$convergence == 0 && !is.null(pol$H_inv) && pol$decrement >= 1e-4) {
     retry <- tryCatch(
-      stats::optim(pol$par, nll, method = "BFGS",
+      stats::optim(pol$par, nll, gr, method = "BFGS",
                    control = list(maxit = 2000, reltol = 1e-12)),
       error = function(e) NULL
     )
     if (!is.null(retry) && is.finite(retry$value)) {
       pol2 <- .polish_optimum(nll, setNames(retry$par, theta_names),
-                              max_steps = 50L)
+                              max_steps = 50L, gr = gr)
       if (nll(pol2$par) <= nll(pol$par)) pol <- pol2
     }
   }
@@ -376,13 +378,13 @@ fit_logistic_emax <- function(
     boundary_dir <- chk$dir
     if (boundary == "finite") {
       rs <- tryCatch(
-        stats::optim(chk$start, nll, method = "BFGS",
+        stats::optim(chk$start, nll, gr, method = "BFGS",
                      control = list(maxit = 2000, reltol = 1e-12)),
         error = function(e) NULL
       )
       if (!is.null(rs) && is.finite(rs$value)) {
         pol3 <- .polish_optimum(nll, setNames(rs$par, theta_names),
-                                max_steps = 50L)
+                                max_steps = 50L, gr = gr)
         if (nll(pol3$par) < nll(pol$par)) pol <- pol3
       }
     }
@@ -753,12 +755,13 @@ predict.logistic_emax <- function(
 # Finish a minimisation of `f` from `p` with Newton steps (with step-halving)
 # until the Newton decrement 0.5 * g' H^-1 g is below `tol`. Returns the
 # final parameters, the inverse Hessian (NULL when the Hessian isn't positive
-# definite) and the decrement.
-.polish_optimum <- function(f, p, tol = 1e-4, max_steps = 10L) {
+# definite) and the decrement. `gr`, the gradient of `f`, is optional
+# (numerical when NULL).
+.polish_optimum <- function(f, p, tol = 1e-4, max_steps = 10L, gr = NULL) {
   for (k in 0:max_steps) {
-    H_inv <- .pd_inverse(stats::optimHess(p, f))
+    H_inv <- .pd_inverse(stats::optimHess(p, f, gr))
     if (is.null(H_inv)) return(list(par = p, H_inv = NULL, decrement = NA_real_))
-    g         <- .num_grad(f, p)
+    g         <- if (is.null(gr)) .num_grad(f, p) else gr(p)
     step      <- drop(H_inv %*% g)
     decrement <- 0.5 * sum(g * step)
     if (decrement < tol || k == max_steps) break

@@ -16,7 +16,7 @@
 #   Cox                         0.98 0.90
 #   Cox, patient-level          0.98 0.90
 #   Emax, EC50 = 10, BCa        0.90 0.93 0.95   profile 0.92 0.95 0.94
-#   Emax, EC50 = 60, BCa        0.89 0.90 0.93   profile 0.89 0.99 0.95
+#   Emax, EC50 = 60, BCa        0.89 0.91 0.93   profile 0.90 0.99 0.95
 # The weakly identified design also meets the 0.88 bar, so it shares it.
 
 skip_if_not(

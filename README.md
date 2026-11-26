@@ -116,9 +116,9 @@ fp_plot(fit_cox, lung,
 
 ```r
 set.seed(42)
-dose <- sort(rep(c(0, 5, 10, 25, 50, 100), length.out = 200))
-y    <- rbinom(200, 1, plogis(qlogis(0.10) +
-         (qlogis(0.75) - qlogis(0.10)) * dose / (10 + dose)))
+dose <- sort(rep(c(0, 1, 2.5, 5, 10, 20, 40, 80), length.out = 400))
+y    <- rbinom(400, 1, plogis(qlogis(0.05) +
+         (qlogis(0.95) - qlogis(0.05)) * dose / (10 + dose)))
 
 fit_emax <- fit_logistic_emax(y, dose)
 be       <- bootstrap_emax(fit_emax, n_boot = 500, seed = 1)

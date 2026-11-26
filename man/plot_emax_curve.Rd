@@ -115,15 +115,13 @@ jackknife fits stored by \code{\link[=bootstrap_emax]{bootstrap_emax()}}) or, wi
 }
 \examples{
 set.seed(42)
-n    <- 200
-dose <- sort(rep(c(0, 5, 10, 25, 50, 100), length.out = n))
-eta  <- qlogis(0.10) + (qlogis(0.75) - qlogis(0.10)) * dose / (10 + dose)
+n    <- 400
+dose <- sort(rep(c(0, 1, 2.5, 5, 10, 20, 40, 80), length.out = n))
+eta  <- qlogis(0.05) + (qlogis(0.95) - qlogis(0.05)) * dose / (10 + dose)
 y    <- rbinom(n, 1, plogis(eta))
 fit  <- fit_logistic_emax(y, dose)
-\donttest{
 be   <- bootstrap_emax(fit, n_boot = 200, seed = 1)
 plot_emax_curve(be)
-}
 
 }
 \seealso{

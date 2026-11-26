@@ -123,3 +123,31 @@ test_that("bootstrap_emax() keeps replicates that only fail identifiability chec
   )[[1]])
   expect_match(msg, "of 120 bootstrap replicates")
 })
+
+# ---- Analytic gradient ---------------------------------------------------------
+
+test_that(".emax_grad_fn() matches a numerical gradient of .emax_nll_fn()", {
+  set.seed(11)
+  n  <- 150
+  x  <- rep(c(0, 2, 5, 10, 40), length.out = n)
+  zl <- cbind(a = rnorm(n))
+  ze <- cbind(b = rbinom(n, 1, 0.5))
+  zc <- cbind(c = rnorm(n))
+  y  <- rbinom(n, 1, 0.4)
+  idx <- list(e0 = 1L, emax0 = 2L, log_ec50 = 3L, lin = 4L, emax_cov = 5L,
+              ec50_cov = 6L)
+  nll <- .emax_nll_fn(x, y, zl, ze, zc, idx)
+  gr  <- .emax_grad_fn(x, y, zl, ze, zc, idx)
+  for (th in list(c(-1, 2, log(5), 0.3, -0.7, 0.2),
+                  c(0.5, -3, log(0.5), -1, 1.5, -0.4))) {
+    expect_equal(gr(th), .num_grad(nll, th, h = 1e-6), tolerance = 1e-6)
+  }
+  # No covariates
+  none <- matrix(0, n, 0L)
+  idx0 <- list(e0 = 1L, emax0 = 2L, log_ec50 = 3L, lin = integer(0),
+               emax_cov = integer(0), ec50_cov = integer(0))
+  nll0 <- .emax_nll_fn(x, y, none, none, none, idx0)
+  gr0  <- .emax_grad_fn(x, y, none, none, none, idx0)
+  expect_equal(gr0(c(-1, 2, log(5))), .num_grad(nll0, c(-1, 2, log(5)), h = 1e-6),
+               tolerance = 1e-6)
+})

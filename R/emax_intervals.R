@@ -16,10 +16,36 @@
       if (p_ec50 > 0) drop(Z_ec50 %*% theta[idx$ec50_cov]) else 0)
     eta <- theta[idx$e0] + emax_i * x / (ec50_i + x) +
       if (p_lin > 0) drop(Z_lin %*% theta[idx$lin]) else 0
-    -sum(
-      y       * stats::plogis(eta, log.p = TRUE) +
-      (1 - y) * stats::plogis(eta, lower.tail = FALSE, log.p = TRUE)
-    )
+    # -log-likelihood = sum(log(1 + exp(eta)) - y * eta), one stable plogis()
+    sum(-stats::plogis(eta, lower.tail = FALSE, log.p = TRUE) - y * eta)
+  }
+}
+
+# Gradient of .emax_nll_fn(). With r = plogis(eta) - y and h = x / (EC50_i + x),
+# d eta / d log EC50_i = -Emax_i * h * (1 - h).
+.emax_grad_fn <- function(x, y, Z_lin, Z_emax, Z_ec50, idx) {
+  p_lin  <- ncol(Z_lin)
+  p_emax <- ncol(Z_emax)
+  p_ec50 <- ncol(Z_ec50)
+  function(theta) {
+    emax_i <- theta[idx$emax0] +
+      if (p_emax > 0) drop(Z_emax %*% theta[idx$emax_cov]) else 0
+    ec50_i <- exp(theta[idx$log_ec50] +
+      if (p_ec50 > 0) drop(Z_ec50 %*% theta[idx$ec50_cov]) else 0)
+    h   <- x / (ec50_i + x)
+    eta <- theta[idx$e0] + emax_i * h +
+      if (p_lin > 0) drop(Z_lin %*% theta[idx$lin]) else 0
+    r   <- stats::plogis(eta) - y
+    rh  <- r * h
+    rl  <- -r * emax_i * h * (1 - h)
+    g <- numeric(length(theta))
+    g[idx$e0]       <- sum(r)
+    g[idx$emax0]    <- sum(rh)
+    g[idx$log_ec50] <- sum(rl)
+    if (p_lin  > 0) g[idx$lin]      <- drop(crossprod(Z_lin, r))
+    if (p_emax > 0) g[idx$emax_cov] <- drop(crossprod(Z_emax, rh))
+    if (p_ec50 > 0) g[idx$ec50_cov] <- drop(crossprod(Z_ec50, rl))
+    g
   }
 }
 
@@ -97,7 +123,7 @@
 #' In a simulation study (100 data sets of n = 300; see
 #' `tests/testthat/test-coverage.R`), nominal 95% profile intervals covered
 #' E0, Emax and EC50 in 92-95% of samples in a well-identified design and
-#' 89-99% in a weakly identified one, where bootstrap percentile intervals
+#' 90-99% in a weakly identified one, where bootstrap percentile intervals
 #' covered Emax in only 86% and 83%. The BCa intervals of
 #' [summary.boot_emax()] covered 89-95%.
 #'
