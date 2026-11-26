@@ -2,18 +2,26 @@ Package: bootlace
 Title: Bootstrap Inference and Plots for Logistic, Emax and Cox Models
 Version: 0.1.0
 Authors@R: person("Justin", "Wilkins", email = "justin.wilkins@occams.com",
-    role = c("aut", "cre"))
-Description: Provides case-resampling bootstrap for fitted binomial GLMs,
-    logistic Emax exposure-response models and Cox proportional hazards
-    models, returning percentile confidence intervals for the model
-    parameters. Companion functions plot response curves with bootstrap
-    confidence ribbons and observed outcomes, forest plots of model
-    effects, adjusted survival curves, and ROC curves for one or more
-    models. Also provides visual predictive checks of Cox models against
-    observed Kaplan-Meier curves, and backwards stepwise model reduction
+    role = c("aut", "cre", "cph"))
+Description: Case-resampling bootstrap inference for fitted binomial
+    generalized linear models (GLMs), logistic maximum-effect (Emax)
+    exposure-response models and Cox proportional hazards models. Returns
+    percentile confidence intervals, plus bias-corrected and accelerated
+    (BCa) and profile-likelihood intervals for Emax models (Efron and
+    Tibshirani (1993, ISBN:978-0412042317)), and warns when the number of
+    events per variable is too low for the model (Peduzzi et al. (1996)
+    <doi:10.1016/S0895-4356(96)00236-3>). Companion functions plot
+    response curves with bootstrap confidence ribbons and observed
+    outcomes, forest plots of model effects, adjusted survival curves,
+    receiver operating characteristic (ROC) curves for one or more
+    models, and visual predictive checks of Cox models against observed
+    Kaplan-Meier curves. Also provides backwards stepwise model reduction
     by likelihood ratio test.
-License: GPL-3 + file LICENSE
+License: GPL-3
+URL: https://github.com/kestrel99/bootlace
+BugReports: https://github.com/kestrel99/bootlace/issues
 Encoding: UTF-8
+Language: en-GB
 Roxygen: list(markdown = TRUE)
 Depends:
     R (>= 4.1.0)

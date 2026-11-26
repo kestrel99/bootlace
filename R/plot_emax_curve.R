@@ -68,9 +68,10 @@
 #' eta  <- qlogis(0.10) + (qlogis(0.75) - qlogis(0.10)) * dose / (10 + dose)
 #' y    <- rbinom(n, 1, plogis(eta))
 #' fit  <- fit_logistic_emax(y, dose)
+#' \donttest{
 #' be   <- bootstrap_emax(fit, n_boot = 200, seed = 1)
-#'
 #' plot_emax_curve(be)
+#' }
 #'
 #' @export
 plot_emax_curve <- function(

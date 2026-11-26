@@ -14,6 +14,7 @@ binary-outcome and time-to-event regression models.
 |---|---|
 | `bootstrap_logistic()` | Case-resampling bootstrap; returns coefficient draws and percentile CIs |
 | `plot_logistic_curves()` | Marginal response-curve plots for each predictor with bootstrap CI ribbon |
+| `roc_logistic()` | ROC curve with AUC for a fitted GLM |
 | `compare_logistic_roc()` | Overlaid ROC curves from multiple fitted GLMs |
 | `stepwise_reduce()` | Backwards stepwise reduction by likelihood ratio test |
 
@@ -33,6 +34,7 @@ binary-outcome and time-to-event regression models.
 | `bootstrap_cox()` | Case-resampling bootstrap; returns log-HR draws and percentile CIs |
 | `plot_cox_forest()` | Forest plot of HR point estimates and bootstrap CI bars |
 | `plot_cox_survival()` | Adjusted survival curves with bootstrap CI ribbons |
+| `vpc_cox()` | Visual predictive check against observed Kaplan-Meier curves |
 | `stepwise_reduce()` | Also supports `coxph` objects |
 
 ### Forest plots (`glm` and `coxph`)
@@ -44,14 +46,17 @@ binary-outcome and time-to-event regression models.
 
 ## Install
 
+Install the released version from CRAN:
+
 ```r
-# from GitHub
+install.packages("bootlace")
+```
+
+or the development version from GitHub:
+
+```r
 # install.packages("pak")
 pak::pak("kestrel99/bootlace")
-
-# or with remotes
-# install.packages("remotes")
-remotes::install_github("kestrel99/bootlace")
 ```
 
 ## Examples

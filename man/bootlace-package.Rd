@@ -44,12 +44,20 @@ curves.
 test.
 }
 }
+\seealso{
+Useful links:
+\itemize{
+  \item \url{https://github.com/kestrel99/bootlace}
+  \item Report bugs at \url{https://github.com/kestrel99/bootlace/issues}
+}
+
+}
 \author{
-\strong{Maintainer}: Justin Wilkins \email{justin.wilkins@occams.com}
+\strong{Maintainer}: Justin Wilkins \email{justin.wilkins@occams.com} [copyright holder]
 
 Authors:
 \itemize{
-  \item Justin Wilkins \email{justin.wilkins@occams.com}
+  \item Justin Wilkins \email{justin.wilkins@occams.com} [copyright holder]
 }
 
 }

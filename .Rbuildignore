@@ -6,3 +6,5 @@
 ^man-roxygen$
 ^docs$
 ^SCIENTIFIC_REVIEW.*\.md$
+^LICENSE\.md$
+^cran-comments\.md$
